@@ -4,7 +4,6 @@ import '../models/product_listing.dart';
 import '../services/ar_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/product_3d_viewer.dart';
-import 'in_app_ar_screen.dart';
 
 class ProductDetailScreen extends StatefulWidget {
   final ProductListing product;
@@ -171,11 +170,9 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
     setState(() => _launchingAr = true);
 
     final messenger = ScaffoldMessenger.of(context);
-    final navigator = Navigator.of(context);
-    final glbUrl = widget.product.model3d?.glbUrl;
     final result = await widget.arService.launchAR(
       productTitle: widget.product.title,
-      glbUrl: glbUrl,
+      glbUrl: widget.product.model3d?.glbUrl,
       usdzUrl: widget.product.model3d?.usdzUrl,
     );
 
@@ -184,28 +181,17 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
 
     if (result.success) return;
 
-    if (result.reason == ArCapability.launchFailed && glbUrl != null) {
-      messenger.showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Vista AR completa no disponible. Abriendo modo simple...',
-          ),
-          duration: Duration(seconds: 2),
-        ),
-      );
-      navigator.push(
-        MaterialPageRoute(
-          builder: (_) => InAppArScreen(
-            glbUrl: glbUrl,
-            productTitle: widget.product.title,
-          ),
-        ),
-      );
-      return;
-    }
-
+    final canInstallArCore = result.reason == ArCapability.launchFailed;
     messenger.showSnackBar(
-      SnackBar(content: Text(result.userMessage)),
+      SnackBar(
+        content: Text(result.userMessage),
+        action: canInstallArCore
+            ? SnackBarAction(
+                label: 'Instalar',
+                onPressed: () => widget.arService.openArCoreInstaller(),
+              )
+            : null,
+      ),
     );
   }
 }
