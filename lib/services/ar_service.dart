@@ -87,22 +87,44 @@ class ArService {
       return ArLaunchResult(success: false, reason: ArCapability.noModel);
     }
 
-    final intent = Uri.parse(
-      'intent://arvr.google.com/scene-viewer/1.0'
-      '?file=${Uri.encodeComponent(glbUrl)}'
-      '&mode=ar_preferred'
-      '&title=${Uri.encodeComponent(productTitle)}'
-      '&resizable=false'
-      '${fallbackLink != null ? '&link=${Uri.encodeComponent(fallbackLink)}' : ''}'
-      '#Intent;scheme=https;package=com.google.android.googlequicksearchbox;'
-      'action=android.intent.action.VIEW;'
-      'S.browser_fallback_url=${Uri.encodeComponent(
-        'https://play.google.com/store/apps/details?id=$_arCorePackage',
-      )};end;',
+    final query =
+        '?file=${Uri.encodeComponent(glbUrl)}'
+        '&mode=ar_preferred'
+        '&title=${Uri.encodeComponent(productTitle)}'
+        '&resizable=false'
+        '${fallbackLink != null ? '&link=${Uri.encodeComponent(fallbackLink)}' : ''}';
+
+    final fallbackUrl = Uri.encodeComponent(
+      'https://play.google.com/store/apps/details?id=$_arCorePackage',
     );
 
-    final ok = await launchUrl(intent, mode: LaunchMode.externalApplication);
-    return ArLaunchResult(success: ok);
+    final intentNoPackage = Uri.parse(
+      'intent://arvr.google.com/scene-viewer/1.0$query'
+      '#Intent;scheme=https;'
+      'action=android.intent.action.VIEW;'
+      'S.browser_fallback_url=$fallbackUrl;end;',
+    );
+
+    try {
+      final ok = await launchUrl(
+        intentNoPackage,
+        mode: LaunchMode.externalApplication,
+      );
+      if (ok) return ArLaunchResult(success: true);
+    } catch (_) {}
+
+    final httpsUrl = Uri.parse(
+      'https://arvr.google.com/scene-viewer/1.0$query',
+    );
+    try {
+      final ok = await launchUrl(
+        httpsUrl,
+        mode: LaunchMode.externalApplication,
+      );
+      if (ok) return ArLaunchResult(success: true);
+    } catch (_) {}
+
+    return ArLaunchResult(success: false, reason: ArCapability.launchFailed);
   }
 
   Future<ArLaunchResult> _launchQuickLook({

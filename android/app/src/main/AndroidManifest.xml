@@ -64,5 +64,8 @@
             <action android:name="android.intent.action.VIEW"/>
             <data android:scheme="https" android:host="play.google.com"/>
         </intent>
+        <package android:name="com.google.ar.core"/>
+        <package android:name="com.google.android.googlequicksearchbox"/>
+        <package android:name="com.android.vending"/>
     </queries>
 </manifest>
