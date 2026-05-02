@@ -44,11 +44,13 @@ class AuthProvider extends ChangeNotifier {
 
     try {
       await _authService.signInWithGoogle();
-    } catch (error) {
+    } catch (error, stack) {
+      debugPrint('[AuthProvider] signInWithGoogle failed: $error');
+      debugPrint('[AuthProvider] stack: $stack');
       final message = error.toString();
       _error = message.contains('sign_in_cancelled')
           ? 'Inicio de sesión cancelado'
-          : 'No se pudo iniciar sesión con Google';
+          : 'No se pudo iniciar sesión con Google: $message';
       _busy = false;
       notifyListeners();
     }
