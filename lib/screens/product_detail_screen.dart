@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
+import 'package:share_plus/share_plus.dart';
 import '../models/product_listing.dart';
 import '../services/ar_service.dart';
 import '../theme/app_theme.dart';
@@ -21,6 +24,14 @@ class ProductDetailScreen extends StatefulWidget {
 
 class _ProductDetailScreenState extends State<ProductDetailScreen> {
   bool _launchingAr = false;
+  bool _favoriteBusy = false;
+  bool _isFavorite = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadFavoriteState();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -49,12 +60,15 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
             ),
             actions: [
               IconButton(
-                icon: const Icon(Icons.favorite_border),
-                onPressed: () {},
+                icon: Icon(
+                  _isFavorite ? Icons.favorite : Icons.favorite_border,
+                  color: _isFavorite ? AppTheme.danger : null,
+                ),
+                onPressed: _favoriteBusy ? null : _toggleFavorite,
               ),
               IconButton(
                 icon: const Icon(Icons.share_outlined),
-                onPressed: () {},
+                onPressed: _shareProduct,
               ),
             ],
           ),
@@ -194,6 +208,108 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
       ),
     );
   }
+
+  Future<void> _loadFavoriteState() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    try {
+      final favoriteDoc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .collection('favorites')
+          .doc(widget.product.id)
+          .get();
+      if (!mounted) return;
+      setState(() => _isFavorite = favoriteDoc.exists);
+    } catch (_) {}
+  }
+
+  Future<void> _toggleFavorite() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Inicia sesión para guardar favoritos'),
+        ),
+      );
+      return;
+    }
+
+    setState(() => _favoriteBusy = true);
+    final favoriteRef = FirebaseFirestore.instance
+        .collection('users')
+        .doc(user.uid)
+        .collection('favorites')
+        .doc(widget.product.id);
+
+    try {
+      if (_isFavorite) {
+        await favoriteRef.delete();
+      } else {
+        await favoriteRef.set({
+          'productId': widget.product.id,
+          'title': widget.product.title,
+          'price': widget.product.price,
+          'photo': widget.product.firstPhoto,
+          'sellerId': widget.product.sellerId,
+          'createdAt': FieldValue.serverTimestamp(),
+        });
+      }
+
+      if (!mounted) return;
+      setState(() => _isFavorite = !_isFavorite);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            _isFavorite ? 'Agregado a favoritos' : 'Eliminado de favoritos',
+          ),
+        ),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('No se pudo actualizar favoritos: $error'),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _favoriteBusy = false);
+      }
+    }
+  }
+
+  Future<void> _shareProduct() async {
+    final p = widget.product;
+    final priceFmt = NumberFormat.currency(
+      locale: 'es_CO',
+      symbol: '\$',
+      decimalDigits: 0,
+    );
+    final links = <String>[
+      if (p.firstPhoto.isNotEmpty) p.firstPhoto,
+      if (p.model3d?.glbUrl != null) p.model3d!.glbUrl!,
+      if (p.model3d?.usdzUrl != null) p.model3d!.usdzUrl!,
+    ];
+
+    final message = [
+      'Mira este producto en Marketplace 3D:',
+      p.title,
+      priceFmt.format(p.price),
+      if (p.description.isNotEmpty) p.description,
+      'ID: ${p.id}',
+      if (links.isNotEmpty) '',
+      ...links,
+    ].join('\n');
+
+    await SharePlus.instance.share(
+      ShareParams(
+        text: message,
+        subject: p.title,
+      ),
+    );
+  }
 }
 
 class _ArAvailableChip extends StatelessWidget {
@@ -321,4 +437,3 @@ class _SellerRow extends StatelessWidget {
     );
   }
 }
-
