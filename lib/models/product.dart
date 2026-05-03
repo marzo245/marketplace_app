@@ -71,29 +71,35 @@ enum Model3DStatus {
 
 class ProductStatus {
   final String productId;
+  final String productStatus;
   final Model3DStatus status;
   final int progress;
   final String? glbUrl;
   final String? usdzUrl;
   final String? error;
+  final String? errorDetail;
 
   ProductStatus({
     required this.productId,
+    required this.productStatus,
     required this.status,
     this.progress = 0,
     this.glbUrl,
     this.usdzUrl,
     this.error,
+    this.errorDetail,
   });
 
   factory ProductStatus.fromJson(Map<String, dynamic> json) {
     return ProductStatus(
       productId: json['productId'] as String,
+      productStatus: (json['productStatus'] as String?) ?? 'unknown',
       status: Model3DStatus.fromString(json['status'] as String?),
       progress: (json['progress'] as num?)?.toInt() ?? 0,
       glbUrl: json['glbUrl'] as String?,
       usdzUrl: json['usdzUrl'] as String?,
       error: json['error'] as String?,
+      errorDetail: json['errorDetail'] as String?,
     );
   }
 }
@@ -101,11 +107,13 @@ class ProductStatus {
 class UploadResult {
   final String productId;
   final String jobId;
+  final String productStatus;
   final int estimatedMinutes;
 
   UploadResult({
     required this.productId,
     required this.jobId,
+    required this.productStatus,
     required this.estimatedMinutes,
   });
 
@@ -113,6 +121,7 @@ class UploadResult {
     return UploadResult(
       productId: json['productId'] as String,
       jobId: json['jobId'] as String,
+      productStatus: (json['productStatus'] as String?) ?? 'unknown',
       estimatedMinutes: (json['estimatedMinutes'] as num?)?.toInt() ?? 3,
     );
   }

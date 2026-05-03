@@ -6,12 +6,14 @@ class ProcessingSteps extends StatelessWidget {
   final UploadState state;
   final double uploadProgress;
   final int? meshyProgress;
+  final bool productPublished;
 
   const ProcessingSteps({
     super.key,
     required this.state,
     required this.uploadProgress,
     this.meshyProgress,
+    required this.productPublished,
   });
 
   @override
@@ -29,17 +31,19 @@ class ProcessingSteps extends StatelessWidget {
         _Connector(active: state.index >= UploadState.waitingForModel.index),
         _Step(
           number: 2,
+          title: 'Producto publicado',
+          subtitle: productPublished
+              ? 'Ya aparece visible en el catalogo'
+              : 'Publicando el producto...',
+          status: _getStep2Status(),
+        ),
+        _Connector(active: state.index >= UploadState.waitingForModel.index),
+        _Step(
+          number: 3,
           title: 'Generando modelo 3D',
           subtitle: meshyProgress != null && meshyProgress! > 0
               ? 'Meshy AI procesando... ${meshyProgress}%'
               : 'Esto toma entre 1 y 3 minutos',
-          status: _getStep2Status(),
-        ),
-        _Connector(active: state == UploadState.ready),
-        _Step(
-          number: 3,
-          title: 'Producto publicado',
-          subtitle: 'Visible en el catálogo con vista AR',
           status: _getStep3Status(),
         ),
       ],
@@ -55,15 +59,16 @@ class ProcessingSteps extends StatelessWidget {
 
   _StepStatus _getStep2Status() {
     if (state.index < UploadState.waitingForModel.index) return _StepStatus.pending;
-    if (state == UploadState.waitingForModel) return _StepStatus.active;
-    if (state == UploadState.failed) return _StepStatus.failed;
-    return _StepStatus.done;
+    if (state == UploadState.failed && !productPublished) return _StepStatus.failed;
+    if (productPublished) return _StepStatus.done;
+    return _StepStatus.active;
   }
 
   _StepStatus _getStep3Status() {
-    if (state == UploadState.ready) return _StepStatus.done;
-    if (state == UploadState.failed) return _StepStatus.pending;
-    return _StepStatus.pending;
+    if (state.index < UploadState.waitingForModel.index) return _StepStatus.pending;
+    if (state == UploadState.waitingForModel) return _StepStatus.active;
+    if (state == UploadState.failed) return _StepStatus.failed;
+    return _StepStatus.done;
   }
 }
 
@@ -171,8 +176,8 @@ class _StepIcon extends StatelessWidget {
         return Container(
           width: 26,
           height: 26,
-          decoration: BoxDecoration(
-            color: const Color(0xFFF5F5F7),
+          decoration: const BoxDecoration(
+            color: Color(0xFFF5F5F7),
             shape: BoxShape.circle,
           ),
           child: Center(

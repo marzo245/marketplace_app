@@ -27,6 +27,10 @@ class SellerProvider extends ChangeNotifier {
   String? _productId;
   String? get productId => _productId;
 
+  String? _productStatus;
+  String? get productStatus => _productStatus;
+  bool get isProductPublished => _productStatus == 'published';
+
   ProductStatus? _latestStatus;
   ProductStatus? get latestStatus => _latestStatus;
 
@@ -109,6 +113,7 @@ class SellerProvider extends ChangeNotifier {
       );
 
       _productId = result.productId;
+      _productStatus = result.productStatus;
       _state = UploadState.waitingForModel;
       notifyListeners();
 
@@ -133,13 +138,14 @@ class SellerProvider extends ChangeNotifier {
     try {
       final status = await _api.getProductStatus(_productId!);
       _latestStatus = status;
+      _productStatus = status.productStatus;
 
       if (status.status == Model3DStatus.ready) {
         _state = UploadState.ready;
         _pollTimer?.cancel();
       } else if (status.status == Model3DStatus.failed) {
         _state = UploadState.failed;
-        _error = status.error ?? 'El modelo 3D no pudo generarse';
+        _error = status.errorDetail ?? status.error ?? 'El modelo 3D no pudo generarse';
         _pollTimer?.cancel();
       }
       notifyListeners();
@@ -154,6 +160,7 @@ class SellerProvider extends ChangeNotifier {
     _state = UploadState.idle;
     _uploadProgress = 0;
     _productId = null;
+    _productStatus = null;
     _latestStatus = null;
     _error = null;
     notifyListeners();

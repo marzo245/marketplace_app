@@ -52,6 +52,7 @@ class ProcessingScreen extends StatelessWidget {
                         state: seller.state,
                         uploadProgress: seller.uploadProgress,
                         meshyProgress: seller.latestStatus?.progress,
+                        productPublished: seller.isProductPublished,
                       ),
                     ),
                     const Spacer(),
@@ -69,9 +70,9 @@ class ProcessingScreen extends StatelessWidget {
   String _getTitle(UploadState state) {
     return switch (state) {
       UploadState.uploading => 'Subiendo tu producto',
-      UploadState.waitingForModel => 'Creando el modelo 3D',
-      UploadState.ready => '¡Producto publicado!',
-      UploadState.failed => 'Algo salió mal',
+      UploadState.waitingForModel => 'Producto publicado',
+      UploadState.ready => 'Modelo 3D listo',
+      UploadState.failed => 'Algo salio mal',
       _ => 'Procesando',
     };
   }
@@ -80,9 +81,9 @@ class ProcessingScreen extends StatelessWidget {
     return switch (state) {
       UploadState.uploading => 'Enviando las fotos al servidor. No cierres la app.',
       UploadState.waitingForModel =>
-        'Meshy AI está generando el modelo 3D. Puedes cerrar la app, te avisaremos cuando esté listo.',
+        'Tu producto ya aparece en el catalogo. Ahora Meshy AI esta generando el modelo 3D en segundo plano.',
       UploadState.ready =>
-        'Tu producto ya aparece en el catálogo con vista de realidad aumentada.',
+        'Tu producto ya aparece publicado y ahora tambien tiene vista de realidad aumentada.',
       UploadState.failed => 'Revisa los detalles e intenta de nuevo.',
       _ => '',
     };
@@ -102,7 +103,7 @@ class _HeaderIcon extends StatelessWidget {
     };
 
     final isAnimating = state == UploadState.uploading ||
-                       state == UploadState.waitingForModel;
+        state == UploadState.waitingForModel;
 
     return Center(
       child: Container(
@@ -146,9 +147,10 @@ class _ActionArea extends StatelessWidget {
           const SizedBox(height: 8),
           TextButton(
             onPressed: () {
-              // TODO: navegar al detalle del producto
+              seller.reset();
+              Navigator.of(context).popUntil((r) => r.isFirst);
             },
-            child: const Text('Ver mi producto'),
+            child: const Text('Ir al catalogo'),
           ),
         ],
       );
