@@ -175,8 +175,15 @@ class _ActionArea extends StatelessWidget {
             ),
           FilledButton(
             style: FilledButton.styleFrom(backgroundColor: AppTheme.primary),
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Intentar de nuevo'),
+            onPressed: () => seller.submit(),
+            child: const Text('Reintentar'),
+          ),
+          const SizedBox(height: 8),
+          TextButton(
+            onPressed: () {
+              Navigator.of(context).pop();
+            },
+            child: const Text('Editar datos'),
           ),
         ],
       );
