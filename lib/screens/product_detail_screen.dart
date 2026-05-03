@@ -114,7 +114,10 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                     ),
                   ),
                   const SizedBox(height: 14),
-                  _SellerRow(product: p),
+                  _SellerRow(
+                    product: p,
+                    onViewProfile: _openSellerProfile,
+                  ),
                   const SizedBox(height: 20),
                   const Text(
                     'Descripción',
@@ -379,6 +382,20 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
       }
     }
   }
+
+  void _openSellerProfile() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => SellerProfileScreen(
+          sellerId: widget.product.sellerId,
+          sellerName: widget.product.sellerName ?? 'Vendedor',
+          sellerRating: widget.product.sellerRating,
+          arService: widget.arService,
+        ),
+      ),
+    );
+  }
 }
 
 class _ArAvailableChip extends StatelessWidget {
@@ -446,7 +463,8 @@ class _ArProcessingChip extends StatelessWidget {
 
 class _SellerRow extends StatelessWidget {
   final ProductListing product;
-  const _SellerRow({required this.product});
+  final VoidCallback onViewProfile;
+  const _SellerRow({required this.product, required this.onViewProfile});
 
   @override
   Widget build(BuildContext context) {
@@ -498,10 +516,301 @@ class _SellerRow extends StatelessWidget {
             ),
           ),
           TextButton(
-            onPressed: () {},
+            onPressed: onViewProfile,
             child: const Text('Ver perfil'),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class SellerProfileScreen extends StatelessWidget {
+  final String sellerId;
+  final String sellerName;
+  final double? sellerRating;
+  final ArService arService;
+
+  const SellerProfileScreen({
+    super.key,
+    required this.sellerId,
+    required this.sellerName,
+    required this.sellerRating,
+    required this.arService,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final query = FirebaseFirestore.instance
+        .collection('products')
+        .where('status', isEqualTo: 'published')
+        .where('sellerId', isEqualTo: sellerId)
+        .orderBy('createdAt', descending: true);
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Perfil del vendedor'),
+      ),
+      body: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+        stream: query.snapshots(),
+        builder: (context, snapshot) {
+          if (snapshot.hasError) {
+            return const Center(
+              child: Text('No se pudo cargar el perfil del vendedor'),
+            );
+          }
+
+          if (!snapshot.hasData) {
+            return const Center(
+              child: CircularProgressIndicator(color: AppTheme.primary),
+            );
+          }
+
+          final products = snapshot.data!.docs
+              .map((doc) => ProductListing.fromFirestore(doc.id, doc.data()))
+              .toList();
+
+          return CustomScrollView(
+            slivers: [
+              SliverToBoxAdapter(
+                child: Container(
+                  margin: const EdgeInsets.all(16),
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFAFAFB),
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: Row(
+                    children: [
+                      CircleAvatar(
+                        radius: 28,
+                        backgroundColor: AppTheme.surface,
+                        child: Text(
+                          sellerName.substring(0, 1).toUpperCase(),
+                          style: const TextStyle(
+                            color: AppTheme.primary,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 22,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              sellerName,
+                              style: const TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              '${products.length} productos publicados',
+                              style: const TextStyle(
+                                color: Colors.black54,
+                                fontSize: 13,
+                              ),
+                            ),
+                            if (sellerRating != null) ...[
+                              const SizedBox(height: 4),
+                              Row(
+                                children: [
+                                  const Icon(
+                                    Icons.star,
+                                    size: 14,
+                                    color: Color(0xFFEF9F27),
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    sellerRating!.toStringAsFixed(1),
+                                    style: const TextStyle(
+                                      fontSize: 12,
+                                      color: Colors.black54,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              if (products.isEmpty)
+                const SliverFillRemaining(
+                  hasScrollBody: false,
+                  child: Center(
+                    child: Text(
+                      'Este vendedor aún no tiene productos publicados',
+                    ),
+                  ),
+                )
+              else
+                SliverPadding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                  sliver: SliverGrid(
+                    gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: 2,
+                      crossAxisSpacing: 10,
+                      mainAxisSpacing: 10,
+                      childAspectRatio: 0.72,
+                    ),
+                    delegate: SliverChildBuilderDelegate(
+                      (context, index) {
+                        final product = products[index];
+                        return _SellerProductCard(
+                          product: product,
+                          onTap: () => Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => ProductDetailScreen(
+                                product: product,
+                                arService: arService,
+                              ),
+                            ),
+                          ),
+                        );
+                      },
+                      childCount: products.length,
+                    ),
+                  ),
+                ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _SellerProductCard extends StatelessWidget {
+  final ProductListing product;
+  final VoidCallback onTap;
+
+  const _SellerProductCard({
+    required this.product,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final priceFmt = NumberFormat.currency(
+      locale: 'es_CO',
+      symbol: '\$',
+      decimalDigits: 0,
+    );
+
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: const Color(0xFFEEEEEE)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            AspectRatio(
+              aspectRatio: 1,
+              child: Stack(
+                children: [
+                  ClipRRect(
+                    borderRadius: const BorderRadius.vertical(
+                      top: Radius.circular(10),
+                    ),
+                    child: Container(
+                      color: const Color(0xFFF5F5F7),
+                      width: double.infinity,
+                      child: product.firstPhoto.isNotEmpty
+                          ? Image.network(
+                              product.firstPhoto,
+                              fit: BoxFit.cover,
+                              errorBuilder: (_, __, ___) => const Icon(
+                                Icons.broken_image_outlined,
+                                color: Colors.black26,
+                              ),
+                            )
+                          : const Icon(
+                              Icons.image_outlined,
+                              color: Colors.black26,
+                              size: 32,
+                            ),
+                    ),
+                  ),
+                  if (product.hasAr)
+                    Positioned(
+                      top: 6,
+                      right: 6,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 6,
+                          vertical: 3,
+                        ),
+                        decoration: BoxDecoration(
+                          color: AppTheme.primary,
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: const Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.view_in_ar,
+                              size: 10,
+                              color: Colors.white,
+                            ),
+                            SizedBox(width: 3),
+                            Text(
+                              '3D · AR',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 9,
+                                fontWeight: FontWeight.w500,
+                                letterSpacing: 0.3,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.all(10),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Flexible(
+                      child: Text(
+                        product.title,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontSize: 12, height: 1.2),
+                      ),
+                    ),
+                    Text(
+                      priceFmt.format(product.price),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
