@@ -1,17 +1,22 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
+
 import 'firebase_options.dart';
+import 'models/product_listing.dart';
 import 'providers/auth_provider.dart';
 import 'providers/seller_provider.dart';
 import 'screens/catalog_screen.dart';
+import 'screens/product_detail_screen.dart';
 import 'screens/sell_product_screen.dart';
 import 'services/api_client.dart';
-import 'services/auth_service.dart';
 import 'services/ar_service.dart';
+import 'services/auth_service.dart';
 import 'services/photo_service.dart';
 import 'services/push_service.dart';
 import 'theme/app_theme.dart';
@@ -35,7 +40,7 @@ Future<void> main() async {
 
   AuthService? authService;
   PushService? pushService;
-  bool firebaseReady = false;
+  var firebaseReady = false;
   try {
     await Firebase.initializeApp(
       options: DefaultFirebaseOptions.currentPlatform,
@@ -121,7 +126,7 @@ class RootShell extends StatefulWidget {
 }
 
 class _RootShellState extends State<RootShell> {
-  int _tab = 0;
+  var _tab = 0;
 
   @override
   Widget build(BuildContext context) {
@@ -130,7 +135,7 @@ class _RootShellState extends State<RootShell> {
     final pages = [
       CatalogScreen(arService: arService, demoMode: widget.demoMode),
       _SellEntry(demoMode: widget.demoMode),
-      _ProfilePlaceholder(demoMode: widget.demoMode),
+      _ProfilePlaceholder(demoMode: widget.demoMode, arService: arService),
     ];
 
     return Scaffold(
@@ -206,8 +211,11 @@ class _SellEntry extends StatelessWidget {
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  const Icon(Icons.add_a_photo_outlined,
-                      size: 56, color: AppTheme.primary),
+                  const Icon(
+                    Icons.add_a_photo_outlined,
+                    size: 56,
+                    color: AppTheme.primary,
+                  ),
                   const SizedBox(height: 16),
                   const Text(
                     'Publica tu producto',
@@ -282,8 +290,12 @@ class _SellEntry extends StatelessWidget {
 
 class _ProfilePlaceholder extends StatelessWidget {
   final bool demoMode;
+  final ArService arService;
 
-  const _ProfilePlaceholder({required this.demoMode});
+  const _ProfilePlaceholder({
+    required this.demoMode,
+    required this.arService,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -303,7 +315,7 @@ class _ProfilePlaceholder extends StatelessWidget {
                 ),
                 SizedBox(height: 6),
                 Text(
-                  'Cuando configures Firebase Auth aquí verás tu sesión, tokens FCM y opciones de cuenta.',
+                  'Cuando configures Firebase Auth aquí verás tu sesión, favoritos y solicitudes de compra.',
                   textAlign: TextAlign.center,
                   style: TextStyle(color: Colors.black54, fontSize: 13, height: 1.4),
                 ),
@@ -319,60 +331,372 @@ class _ProfilePlaceholder extends StatelessWidget {
         final user = auth.user;
         return Scaffold(
           appBar: AppBar(title: const Text('Perfil')),
-          body: Center(
-            child: Padding(
-              padding: const EdgeInsets.all(24),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  CircleAvatar(
-                    radius: 30,
-                    backgroundColor: AppTheme.surface,
-                    child: Text(
-                      (user?.displayName ?? user?.email ?? 'P').substring(0, 1).toUpperCase(),
-                      style: const TextStyle(
-                        color: AppTheme.primary,
-                        fontSize: 24,
-                        fontWeight: FontWeight.w600,
+          body: user == null
+              ? Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(24),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        CircleAvatar(
+                          radius: 30,
+                          backgroundColor: AppTheme.surface,
+                          child: const Text(
+                            'P',
+                            style: TextStyle(
+                              color: AppTheme.primary,
+                              fontSize: 24,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        const Text(
+                          'Perfil',
+                          style: TextStyle(fontSize: 18, fontWeight: FontWeight.w500),
+                        ),
+                        const SizedBox(height: 6),
+                        const Text(
+                          'Inicia sesión para ver favoritos y solicitudes de compra',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(fontSize: 13, color: Colors.black54),
+                        ),
+                        const SizedBox(height: 20),
+                        FilledButton.icon(
+                          style: FilledButton.styleFrom(backgroundColor: AppTheme.primary),
+                          onPressed: auth.busy ? null : () => auth.signInWithGoogle(),
+                          icon: auth.busy
+                              ? const SizedBox(
+                                  width: 16,
+                                  height: 16,
+                                  child: CircularProgressIndicator(strokeWidth: 2),
+                                )
+                              : const Icon(Icons.login),
+                          label: const Text('Iniciar sesión con Google'),
+                        ),
+                      ],
+                    ),
+                  ),
+                )
+              : DefaultTabController(
+                  length: 3,
+                  child: Column(
+                    children: [
+                      Container(
+                        margin: const EdgeInsets.all(16),
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFAFAFB),
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                        child: Row(
+                          children: [
+                            CircleAvatar(
+                              radius: 30,
+                              backgroundColor: AppTheme.surface,
+                              child: Text(
+                                (user.displayName ?? user.email ?? 'P')
+                                    .substring(0, 1)
+                                    .toUpperCase(),
+                                style: const TextStyle(
+                                  color: AppTheme.primary,
+                                  fontSize: 24,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 14),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    user.displayName ?? 'Perfil',
+                                    style: const TextStyle(
+                                      fontSize: 18,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    user.email ?? '',
+                                    style: const TextStyle(
+                                      fontSize: 13,
+                                      color: Colors.black54,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            FilledButton.tonal(
+                              onPressed: auth.busy ? null : () => auth.signOut(),
+                              child: const Text('Cerrar sesión'),
+                            ),
+                          ],
+                        ),
                       ),
-                    ),
+                      const TabBar(
+                        labelColor: AppTheme.primary,
+                        unselectedLabelColor: Colors.black54,
+                        indicatorColor: AppTheme.primary,
+                        tabs: [
+                          Tab(text: 'Favoritos'),
+                          Tab(text: 'Enviadas'),
+                          Tab(text: 'Recibidas'),
+                        ],
+                      ),
+                      Expanded(
+                        child: TabBarView(
+                          children: [
+                            _SavedItemsTab(
+                              title: 'Aún no tienes favoritos',
+                              stream: FirebaseFirestore.instance
+                                  .collection('users')
+                                  .doc(user.uid)
+                                  .collection('favorites')
+                                  .snapshots(),
+                              onOpenProduct: (productId) => _openProduct(context, productId),
+                            ),
+                            _PurchaseIntentsTab(
+                              emptyText: 'Aún no has enviado solicitudes de compra',
+                              stream: FirebaseFirestore.instance
+                                  .collection('purchase_intents')
+                                  .where('buyerId', isEqualTo: user.uid)
+                                  .snapshots(),
+                              isSellerView: false,
+                              onOpenProduct: (productId) => _openProduct(context, productId),
+                            ),
+                            _PurchaseIntentsTab(
+                              emptyText: 'Aún no has recibido solicitudes',
+                              stream: FirebaseFirestore.instance
+                                  .collection('purchase_intents')
+                                  .where('sellerId', isEqualTo: user.uid)
+                                  .snapshots(),
+                              isSellerView: true,
+                              onOpenProduct: (productId) => _openProduct(context, productId),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                   ),
-                  const SizedBox(height: 16),
-                  Text(
-                    user?.displayName ?? 'Perfil',
-                    style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w500),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    user?.email ?? 'Inicia sesión para guardar tus tokens FCM y publicar productos',
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(fontSize: 13, color: Colors.black54),
-                  ),
-                  const SizedBox(height: 20),
-                  if (user == null)
-                    FilledButton.icon(
-                      style: FilledButton.styleFrom(backgroundColor: AppTheme.primary),
-                      onPressed: auth.busy ? null : () => auth.signInWithGoogle(),
-                      icon: auth.busy
-                          ? const SizedBox(
-                              width: 16,
-                              height: 16,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Icon(Icons.login),
-                      label: const Text('Iniciar sesión con Google'),
-                    )
-                  else
-                    FilledButton.tonal(
-                      onPressed: auth.busy ? null : () => auth.signOut(),
-                      child: const Text('Cerrar sesión'),
-                    ),
-                ],
-              ),
-            ),
-          ),
+                ),
         );
       },
+    );
+  }
+
+  Future<void> _openProduct(BuildContext context, String productId) async {
+    if (productId.isEmpty) return;
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final snap = await FirebaseFirestore.instance
+          .collection('products')
+          .doc(productId)
+          .get();
+      if (!snap.exists) {
+        messenger.showSnackBar(
+          const SnackBar(content: Text('El producto ya no está disponible')),
+        );
+        return;
+      }
+
+      final product = ProductListing.fromFirestore(snap.id, snap.data()!);
+      if (!context.mounted) return;
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => ProductDetailScreen(
+            product: product,
+            arService: arService,
+          ),
+        ),
+      );
+    } catch (error) {
+      messenger.showSnackBar(
+        SnackBar(content: Text('No se pudo abrir el producto: $error')),
+      );
+    }
+  }
+}
+
+class _SavedItemsTab extends StatelessWidget {
+  final Stream<QuerySnapshot<Map<String, dynamic>>> stream;
+  final String title;
+  final Future<void> Function(String productId) onOpenProduct;
+
+  const _SavedItemsTab({
+    required this.stream,
+    required this.title,
+    required this.onOpenProduct,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final priceFmt = NumberFormat.currency(
+      locale: 'es_CO',
+      symbol: '\$',
+      decimalDigits: 0,
+    );
+
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: stream,
+      builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return const Center(
+            child: Text('No se pudieron cargar los favoritos'),
+          );
+        }
+        if (!snapshot.hasData) {
+          return const Center(
+            child: CircularProgressIndicator(color: AppTheme.primary),
+          );
+        }
+
+        final docs = snapshot.data!.docs;
+        if (docs.isEmpty) {
+          return Center(child: Text(title));
+        }
+
+        return ListView.separated(
+          padding: const EdgeInsets.all(16),
+          itemCount: docs.length,
+          separatorBuilder: (_, __) => const SizedBox(height: 10),
+          itemBuilder: (context, index) {
+            final data = docs[index].data();
+            return ListTile(
+              tileColor: const Color(0xFFFAFAFB),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              leading: ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: SizedBox(
+                  width: 52,
+                  height: 52,
+                  child: (data['photo'] as String?)?.isNotEmpty == true
+                      ? Image.network(
+                          data['photo'] as String,
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, __, ___) => const Icon(Icons.image_outlined),
+                        )
+                      : const Icon(Icons.image_outlined),
+                ),
+              ),
+              title: Text(data['title'] as String? ?? 'Producto'),
+              subtitle: Text(
+                priceFmt.format((data['price'] as num?)?.toDouble() ?? 0),
+              ),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => onOpenProduct(data['productId'] as String? ?? ''),
+            );
+          },
+        );
+      },
+    );
+  }
+}
+
+class _PurchaseIntentsTab extends StatelessWidget {
+  final Stream<QuerySnapshot<Map<String, dynamic>>> stream;
+  final String emptyText;
+  final bool isSellerView;
+  final Future<void> Function(String productId) onOpenProduct;
+
+  const _PurchaseIntentsTab({
+    required this.stream,
+    required this.emptyText,
+    required this.isSellerView,
+    required this.onOpenProduct,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final priceFmt = NumberFormat.currency(
+      locale: 'es_CO',
+      symbol: '\$',
+      decimalDigits: 0,
+    );
+
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: stream,
+      builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return const Center(
+            child: Text('No se pudieron cargar las solicitudes'),
+          );
+        }
+        if (!snapshot.hasData) {
+          return const Center(
+            child: CircularProgressIndicator(color: AppTheme.primary),
+          );
+        }
+
+        final docs = snapshot.data!.docs;
+        if (docs.isEmpty) {
+          return Center(child: Text(emptyText));
+        }
+
+        return ListView.separated(
+          padding: const EdgeInsets.all(16),
+          itemCount: docs.length,
+          separatorBuilder: (_, __) => const SizedBox(height: 10),
+          itemBuilder: (context, index) {
+            final data = docs[index].data();
+            final counterpart = isSellerView
+                ? (data['buyerName'] as String? ??
+                    data['buyerEmail'] as String? ??
+                    'Comprador')
+                : (data['sellerName'] as String? ?? 'Vendedor');
+            final counterpartLabel = isSellerView ? 'Comprador' : 'Vendedor';
+
+            return ListTile(
+              tileColor: const Color(0xFFFAFAFB),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              title: Text(data['productTitle'] as String? ?? 'Producto'),
+              subtitle: Text(
+                '${priceFmt.format((data['productPrice'] as num?)?.toDouble() ?? 0)}\n$counterpartLabel: $counterpart',
+              ),
+              isThreeLine: true,
+              trailing: _StatusChip(status: data['status'] as String? ?? 'new'),
+              onTap: () => onOpenProduct(data['productId'] as String? ?? ''),
+            );
+          },
+        );
+      },
+    );
+  }
+}
+
+class _StatusChip extends StatelessWidget {
+  final String status;
+
+  const _StatusChip({required this.status});
+
+  @override
+  Widget build(BuildContext context) {
+    final normalized = status.toLowerCase();
+    final color = switch (normalized) {
+      'accepted' => AppTheme.success,
+      'rejected' => AppTheme.danger,
+      'completed' => AppTheme.success,
+      _ => AppTheme.primary,
+    };
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withAlpha(30),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        normalized,
+        style: TextStyle(
+          color: color,
+          fontSize: 11,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
     );
   }
 }
