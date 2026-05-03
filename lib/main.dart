@@ -381,113 +381,11 @@ class _ProfilePlaceholder extends StatelessWidget {
           );
         }
 
-        return DefaultTabController(
-          length: 3,
-          child: Scaffold(
-            appBar: AppBar(
-              title: const Text('Perfil'),
-              bottom: const TabBar(
-                labelColor: AppTheme.primary,
-                unselectedLabelColor: Colors.black54,
-                indicatorColor: AppTheme.primary,
-                tabs: [
-                  Tab(text: 'Favoritos'),
-                  Tab(text: 'Enviadas'),
-                  Tab(text: 'Recibidas'),
-                ],
-              ),
-            ),
-            body: Column(
-              children: [
-                Container(
-                  margin: const EdgeInsets.all(16),
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFFAFAFB),
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                  child: Row(
-                    children: [
-                      CircleAvatar(
-                        radius: 30,
-                        backgroundColor: AppTheme.surface,
-                        child: Text(
-                          (user.displayName ?? user.email ?? 'P')
-                              .substring(0, 1)
-                              .toUpperCase(),
-                          style: const TextStyle(
-                            color: AppTheme.primary,
-                            fontSize: 24,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 14),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              user.displayName ?? 'Perfil',
-                              style: const TextStyle(
-                                fontSize: 18,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              user.email ?? '',
-                              style: const TextStyle(
-                                fontSize: 13,
-                                color: Colors.black54,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      FilledButton.tonal(
-                        onPressed: auth.busy ? null : () => auth.signOut(),
-                        child: const Text('Cerrar sesión'),
-                      ),
-                    ],
-                  ),
-                ),
-                Expanded(
-                  child: TabBarView(
-                    children: [
-                      _SavedItemsTab(
-                        title: 'Aún no tienes favoritos',
-                        stream: FirebaseFirestore.instance
-                            .collection('users')
-                            .doc(user.uid)
-                            .collection('favorites')
-                            .snapshots(),
-                        onOpenProduct: (productId) => _openProduct(context, productId),
-                      ),
-                      _PurchaseIntentsTab(
-                        emptyText: 'Aún no has enviado solicitudes de compra',
-                        stream: FirebaseFirestore.instance
-                            .collection('purchase_intents')
-                            .where('buyerId', isEqualTo: user.uid)
-                            .snapshots(),
-                        isSellerView: false,
-                        onOpenProduct: (productId) => _openProduct(context, productId),
-                      ),
-                      _PurchaseIntentsTab(
-                        emptyText: 'Aún no has recibido solicitudes',
-                        stream: FirebaseFirestore.instance
-                            .collection('purchase_intents')
-                            .where('sellerId', isEqualTo: user.uid)
-                            .snapshots(),
-                        isSellerView: true,
-                        onOpenProduct: (productId) => _openProduct(context, productId),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
+        return _ProfileTabsScaffold(
+          user: user,
+          busy: auth.busy,
+          onSignOut: auth.signOut,
+          onOpenProduct: (productId) => _openProduct(context, productId),
         );
       },
     );
@@ -524,6 +422,139 @@ class _ProfilePlaceholder extends StatelessWidget {
         SnackBar(content: Text('No se pudo abrir el producto: $error')),
       );
     }
+  }
+}
+
+class _ProfileTabsScaffold extends StatefulWidget {
+  final dynamic user;
+  final bool busy;
+  final Future<void> Function() onSignOut;
+  final Future<void> Function(String productId) onOpenProduct;
+
+  const _ProfileTabsScaffold({
+    required this.user,
+    required this.busy,
+    required this.onSignOut,
+    required this.onOpenProduct,
+  });
+
+  @override
+  State<_ProfileTabsScaffold> createState() => _ProfileTabsScaffoldState();
+}
+
+class _ProfileTabsScaffoldState extends State<_ProfileTabsScaffold> {
+  var _tabIndex = 0;
+
+  @override
+  Widget build(BuildContext context) {
+    final user = widget.user;
+
+    final tabs = [
+      _SavedItemsTab(
+        title: 'Aún no tienes favoritos',
+        stream: FirebaseFirestore.instance
+            .collection('users')
+            .doc(user.uid)
+            .collection('favorites')
+            .snapshots(),
+        onOpenProduct: widget.onOpenProduct,
+      ),
+      _PurchaseIntentsTab(
+        emptyText: 'Aún no has enviado solicitudes de compra',
+        stream: FirebaseFirestore.instance
+            .collection('purchase_intents')
+            .where('buyerId', isEqualTo: user.uid)
+            .snapshots(),
+        isSellerView: false,
+        onOpenProduct: widget.onOpenProduct,
+      ),
+      _PurchaseIntentsTab(
+        emptyText: 'Aún no has recibido solicitudes',
+        stream: FirebaseFirestore.instance
+            .collection('purchase_intents')
+            .where('sellerId', isEqualTo: user.uid)
+            .snapshots(),
+        isSellerView: true,
+        onOpenProduct: widget.onOpenProduct,
+      ),
+    ];
+
+    return Scaffold(
+      appBar: AppBar(title: const Text('Perfil')),
+      body: Column(
+        children: [
+          Container(
+            margin: const EdgeInsets.all(16),
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: const Color(0xFFFAFAFB),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: Row(
+              children: [
+                CircleAvatar(
+                  radius: 30,
+                  backgroundColor: AppTheme.surface,
+                  child: Text(
+                    (user.displayName ?? user.email ?? 'P')
+                        .substring(0, 1)
+                        .toUpperCase(),
+                    style: const TextStyle(
+                      color: AppTheme.primary,
+                      fontSize: 24,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        user.displayName ?? 'Perfil',
+                        style: const TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        user.email ?? '',
+                        style: const TextStyle(
+                          fontSize: 13,
+                          color: Colors.black54,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                FilledButton.tonal(
+                  onPressed: widget.busy ? null : widget.onSignOut,
+                  child: const Text('Cerrar sesión'),
+                ),
+              ],
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: SegmentedButton<int>(
+              segments: const [
+                ButtonSegment(value: 0, label: Text('Favoritos')),
+                ButtonSegment(value: 1, label: Text('Enviadas')),
+                ButtonSegment(value: 2, label: Text('Recibidas')),
+              ],
+              selected: {_tabIndex},
+              onSelectionChanged: (selection) {
+                setState(() => _tabIndex = selection.first);
+              },
+            ),
+          ),
+          const SizedBox(height: 12),
+          Expanded(child: tabs[_tabIndex]),
+        ],
+      ),
+    );
   }
 }
 
