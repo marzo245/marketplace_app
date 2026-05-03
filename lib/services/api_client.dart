@@ -26,8 +26,11 @@ class ApiClient {
       envTimeout = null;
     }
 
-    final baseUrl = envBaseUrl ?? 'http://10.0.2.2:3000';
-    final timeout = int.tryParse(envTimeout ?? '') ?? 30;
+    final baseUrl = (envBaseUrl != null && envBaseUrl.isNotEmpty)
+        ? envBaseUrl
+        : 'https://marketplace-backend-sn06.onrender.com';
+    final timeout = int.tryParse(envTimeout ?? '') ?? 60;
+    print('[API] baseUrl=$baseUrl (envBaseUrl=$envBaseUrl)');
     final defaultHeaders = <String, String>{'Accept': 'application/json'};
     if (baseUrl.contains('ngrok-free.dev') || baseUrl.contains('ngrok-free.app')) {
       defaultHeaders['ngrok-skip-browser-warning'] = '1';
