@@ -174,7 +174,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                       borderRadius: BorderRadius.circular(10),
                     ),
                   ),
-                  child: const Text('Comprar'),
+                  child: const Text('Solicitar compra'),
                 ),
               ),
             ],
@@ -324,10 +324,56 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
   }
 
   Future<void> _registerPurchaseIntent() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Inicia sesión para continuar'),
+        ),
+      );
+      return;
+    }
+
+    if (widget.product.sellerId == user.uid) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('No puedes solicitar la compra de tu propio producto'),
+        ),
+      );
+      return;
+    }
+
+    try {
+      final existing = await FirebaseFirestore.instance
+          .collection('purchase_intents')
+          .where('productId', isEqualTo: widget.product.id)
+          .where('buyerId', isEqualTo: user.uid)
+          .limit(1)
+          .get();
+
+      if (existing.docs.isNotEmpty) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Ya habías enviado una solicitud de compra para este producto'),
+          ),
+        );
+        return;
+      }
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('No se pudo validar la solicitud: $error'),
+        ),
+      );
+      return;
+    }
+
     await _submitBuyerAction(
       type: 'purchase_intent',
       collection: 'purchase_intents',
-      successMessage: 'Tu intención de compra fue registrada',
+      successMessage: 'Tu solicitud de compra fue registrada',
       busySetter: (value) => _purchaseBusy = value,
     );
   }
