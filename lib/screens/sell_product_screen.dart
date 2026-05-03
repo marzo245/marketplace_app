@@ -133,22 +133,21 @@ class _SellProductScreenState extends State<SellProductScreen> {
     );
   }
 
-  Future<void> _submit(BuildContext context, SellerProvider seller) async {
+  void _submit(BuildContext context, SellerProvider seller) {
     final scaffold = ScaffoldMessenger.of(context);
     final navigator = Navigator.of(context);
 
-    final ok = await seller.submit();
-    if (!mounted) return;
-
-    if (ok) {
-      navigator.push(
-        MaterialPageRoute(builder: (_) => const ProcessingScreen()),
-      );
-    } else if (seller.error != null) {
-      scaffold.showSnackBar(
-        SnackBar(content: Text(seller.error!)),
-      );
+    final validationError = seller.draft.validationError;
+    if (validationError != null) {
+      scaffold.showSnackBar(SnackBar(content: Text(validationError)));
+      return;
     }
+
+    navigator.push(
+      MaterialPageRoute(builder: (_) => const ProcessingScreen()),
+    );
+
+    seller.submit();
   }
 }
 
