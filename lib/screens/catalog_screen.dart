@@ -1,7 +1,11 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:geocoding/geocoding.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:intl/intl.dart';
+import 'package:provider/provider.dart';
 import '../models/product_listing.dart';
+import '../providers/auth_provider.dart';
 import '../services/ar_service.dart';
 import '../theme/app_theme.dart';
 import 'product_detail_screen.dart';
@@ -29,6 +33,8 @@ class _CatalogScreenState extends State<CatalogScreen> {
   bool _loadingMore = false;
   bool _hasMore = true;
   String? _error;
+
+  String _locationLabel = 'Cargando ubicación...';
 
   final List<ProductListing> _products = [];
   DocumentSnapshot<Map<String, dynamic>>? _lastDoc;
@@ -106,6 +112,54 @@ class _CatalogScreenState extends State<CatalogScreen> {
         _loadFirstPage();
       }
     });
+    _loadLocation();
+  }
+
+  Future<void> _loadLocation() async {
+    try {
+      if (!await Geolocator.isLocationServiceEnabled()) {
+        if (mounted) setState(() => _locationLabel = 'Ubicación desactivada');
+        return;
+      }
+
+      var permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+      if (permission == LocationPermission.denied ||
+          permission == LocationPermission.deniedForever) {
+        if (mounted) setState(() => _locationLabel = 'Ubicación no disponible');
+        return;
+      }
+
+      final position = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.low,
+          timeLimit: Duration(seconds: 8),
+        ),
+      );
+
+      final placemarks = await placemarkFromCoordinates(
+        position.latitude,
+        position.longitude,
+      );
+
+      if (!mounted) return;
+      if (placemarks.isEmpty) {
+        setState(() => _locationLabel = 'Ubicación no disponible');
+        return;
+      }
+
+      final p = placemarks.first;
+      final city = (p.locality?.isNotEmpty ?? false)
+          ? p.locality!
+          : (p.subAdministrativeArea ?? p.administrativeArea ?? '');
+      final country = p.isoCountryCode ?? p.country ?? '';
+      final label = [city, country].where((s) => s.isNotEmpty).join(', ');
+      setState(() => _locationLabel = label.isEmpty ? 'Ubicación no disponible' : label);
+    } catch (_) {
+      if (mounted) setState(() => _locationLabel = 'Ubicación no disponible');
+    }
   }
 
   @override
@@ -240,6 +294,17 @@ class _CatalogScreenState extends State<CatalogScreen> {
   }
 
   Widget _buildHeader() {
+    final user = context.watch<AuthProvider>().user;
+    final isGuest = user == null;
+    final displayName = isGuest
+        ? 'Invitado'
+        : (user.displayName?.trim().isNotEmpty == true
+            ? user.displayName!.trim()
+            : (user.email ?? 'Usuario'));
+    final initial = displayName.isNotEmpty
+        ? displayName.characters.first.toUpperCase()
+        : '?';
+
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
       child: Column(
@@ -250,9 +315,9 @@ class _CatalogScreenState extends State<CatalogScreen> {
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
-                  children: const [
-                    Text(
-                      'UBICACIÓN',
+                  children: [
+                    const Text(
+                      'HOLA,',
                       style: TextStyle(
                         fontSize: 10,
                         color: Colors.black54,
@@ -260,11 +325,32 @@ class _CatalogScreenState extends State<CatalogScreen> {
                       ),
                     ),
                     Text(
-                      'Chocontá, CO',
-                      style: TextStyle(
+                      displayName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
                         fontSize: 14,
                         fontWeight: FontWeight.w500,
                       ),
+                    ),
+                    const SizedBox(height: 2),
+                    Row(
+                      children: [
+                        const Icon(Icons.location_on_outlined,
+                            size: 12, color: Colors.black54),
+                        const SizedBox(width: 2),
+                        Flexible(
+                          child: Text(
+                            _locationLabel,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 11,
+                              color: Colors.black54,
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ],
                 ),
@@ -273,7 +359,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
                 radius: 16,
                 backgroundColor: AppTheme.surface,
                 child: Text(
-                  'D',
+                  initial,
                   style: TextStyle(
                     color: AppTheme.primary,
                     fontWeight: FontWeight.w500,
