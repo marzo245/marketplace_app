@@ -26,6 +26,8 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
   bool _launchingAr = false;
   bool _favoriteBusy = false;
   bool _isFavorite = false;
+  bool _contactBusy = false;
+  bool _purchaseBusy = false;
 
   @override
   void initState() {
@@ -145,7 +147,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
             children: [
               Expanded(
                 child: OutlinedButton.icon(
-                  onPressed: () {},
+                  onPressed: _contactBusy ? null : _contactSeller,
                   style: OutlinedButton.styleFrom(
                     foregroundColor: AppTheme.primary,
                     side: const BorderSide(color: AppTheme.primary),
@@ -161,7 +163,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
               const SizedBox(width: 10),
               Expanded(
                 child: FilledButton(
-                  onPressed: () {},
+                  onPressed: _purchaseBusy ? null : _registerPurchaseIntent,
                   style: FilledButton.styleFrom(
                     backgroundColor: AppTheme.primary,
                     minimumSize: const Size.fromHeight(48),
@@ -309,6 +311,75 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
         subject: p.title,
       ),
     );
+  }
+
+  Future<void> _contactSeller() async {
+    await _submitBuyerAction(
+      type: 'contact_request',
+      collection: 'product_inquiries',
+      successMessage: 'Tu interés fue enviado al vendedor',
+      busySetter: (value) => _contactBusy = value,
+    );
+  }
+
+  Future<void> _registerPurchaseIntent() async {
+    await _submitBuyerAction(
+      type: 'purchase_intent',
+      collection: 'purchase_intents',
+      successMessage: 'Tu intención de compra fue registrada',
+      busySetter: (value) => _purchaseBusy = value,
+    );
+  }
+
+  Future<void> _submitBuyerAction({
+    required String type,
+    required String collection,
+    required String successMessage,
+    required void Function(bool) busySetter,
+  }) async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Inicia sesión para continuar'),
+        ),
+      );
+      return;
+    }
+
+    setState(() => busySetter(true));
+    try {
+      await FirebaseFirestore.instance.collection(collection).add({
+        'type': type,
+        'status': 'new',
+        'productId': widget.product.id,
+        'productTitle': widget.product.title,
+        'productPrice': widget.product.price,
+        'sellerId': widget.product.sellerId,
+        'sellerName': widget.product.sellerName,
+        'buyerId': user.uid,
+        'buyerName': user.displayName,
+        'buyerEmail': user.email,
+        'createdAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(successMessage)),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('No se pudo completar la acción: $error'),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => busySetter(false));
+      }
+    }
   }
 }
 
