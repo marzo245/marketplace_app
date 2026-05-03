@@ -305,11 +305,9 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
       ...links,
     ].join('\n');
 
-    await SharePlus.instance.share(
-      ShareParams(
-        text: message,
-        subject: p.title,
-      ),
+    await Share.share(
+      message,
+      subject: p.title,
     );
   }
 
