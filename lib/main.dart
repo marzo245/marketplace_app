@@ -530,6 +530,9 @@ class _ProfileTabsScaffoldState extends State<_ProfileTabsScaffold> {
                   ),
                 ),
                 FilledButton.tonal(
+                  style: FilledButton.styleFrom(
+                    minimumSize: const Size(0, 40),
+                  ),
                   onPressed: widget.busy ? null : widget.onSignOut,
                   child: const Text('Cerrar sesión'),
                 ),
