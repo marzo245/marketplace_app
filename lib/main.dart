@@ -539,6 +539,7 @@ class _ProfileTabsScaffoldState extends State<_ProfileTabsScaffold> {
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
             child: SegmentedButton<int>(
+              showSelectedIcon: false,
               segments: const [
                 ButtonSegment(value: 0, label: Text('Favoritos')),
                 ButtonSegment(value: 1, label: Text('Enviadas')),

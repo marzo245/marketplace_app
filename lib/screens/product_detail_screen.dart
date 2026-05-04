@@ -602,8 +602,7 @@ class SellerProfileScreen extends StatelessWidget {
     final query = FirebaseFirestore.instance
         .collection('products')
         .where('status', isEqualTo: 'published')
-        .where('sellerId', isEqualTo: sellerId)
-        .orderBy('createdAt', descending: true);
+        .where('sellerId', isEqualTo: sellerId);
 
     return Scaffold(
       appBar: AppBar(
@@ -626,7 +625,8 @@ class SellerProfileScreen extends StatelessWidget {
 
           final products = snapshot.data!.docs
               .map((doc) => ProductListing.fromFirestore(doc.id, doc.data()))
-              .toList();
+              .toList()
+            ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
 
           return CustomScrollView(
             slivers: [
