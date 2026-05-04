@@ -538,17 +538,26 @@ class _ProfileTabsScaffoldState extends State<_ProfileTabsScaffold> {
           ),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: SegmentedButton<int>(
-              showSelectedIcon: false,
-              segments: const [
-                ButtonSegment(value: 0, label: Text('Favoritos')),
-                ButtonSegment(value: 1, label: Text('Enviadas')),
-                ButtonSegment(value: 2, label: Text('Recibidas')),
+            child: Row(
+              children: [
+                _ProfileTabChip(
+                  label: 'Favoritos',
+                  selected: _tabIndex == 0,
+                  onTap: () => setState(() => _tabIndex = 0),
+                ),
+                const SizedBox(width: 8),
+                _ProfileTabChip(
+                  label: 'Enviadas',
+                  selected: _tabIndex == 1,
+                  onTap: () => setState(() => _tabIndex = 1),
+                ),
+                const SizedBox(width: 8),
+                _ProfileTabChip(
+                  label: 'Recibidas',
+                  selected: _tabIndex == 2,
+                  onTap: () => setState(() => _tabIndex = 2),
+                ),
               ],
-              selected: {_tabIndex},
-              onSelectionChanged: (selection) {
-                setState(() => _tabIndex = selection.first);
-              },
             ),
           ),
           const SizedBox(height: 12),
@@ -703,6 +712,46 @@ class _PurchaseIntentsTab extends StatelessWidget {
           },
         );
       },
+    );
+  }
+}
+
+class _ProfileTabChip extends StatelessWidget {
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _ProfileTabChip({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: GestureDetector(
+        onTap: onTap,
+        child: Container(
+          height: 40,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: selected ? AppTheme.primary : const Color(0xFFFAFAFB),
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(
+              color: selected ? AppTheme.primary : const Color(0xFFE0E0E0),
+            ),
+          ),
+          child: Text(
+            label,
+            style: TextStyle(
+              color: selected ? Colors.white : Colors.black87,
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
