@@ -20,7 +20,7 @@ class CatalogScreen extends StatefulWidget {
   State<CatalogScreen> createState() => _CatalogScreenState();
 }
 
-class _CatalogScreenState extends State<CatalogScreen> {
+class _CatalogScreenState extends State<CatalogScreen> with WidgetsBindingObserver {
   static const int _pageSize = 20;
 
   final _search = TextEditingController();
@@ -98,6 +98,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _scrollController.addListener(_onScroll);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (widget.demoMode) {
@@ -164,11 +165,19 @@ class _CatalogScreenState extends State<CatalogScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _scrollController
       ..removeListener(_onScroll)
       ..dispose();
     _search.dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && !widget.demoMode) {
+      _loadFirstPage();
+    }
   }
 
   void _onScroll() {
@@ -484,37 +493,46 @@ class _CatalogScreenState extends State<CatalogScreen> {
       );
     }
 
-    return GridView.builder(
-      controller: _scrollController,
-      padding: const EdgeInsets.all(16),
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 2,
-        crossAxisSpacing: 10,
-        mainAxisSpacing: 10,
-        childAspectRatio: 0.72,
-      ),
-      itemCount: visible.length + (_loadingMore ? 1 : 0),
-      itemBuilder: (context, i) {
-        if (_loadingMore && i >= visible.length) {
-          return const Center(
-            child: CircularProgressIndicator(color: AppTheme.primary),
-          );
-        }
+    return RefreshIndicator(
+      color: AppTheme.primary,
+      onRefresh: _loadFirstPage,
+      child: GridView.builder(
+        controller: _scrollController,
+        padding: const EdgeInsets.all(16),
+        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+          crossAxisCount: 2,
+          crossAxisSpacing: 10,
+          mainAxisSpacing: 10,
+          childAspectRatio: 0.72,
+        ),
+        itemCount: visible.length + (_loadingMore ? 1 : 0),
+        itemBuilder: (context, i) {
+          if (_loadingMore && i >= visible.length) {
+            return const Center(
+              child: CircularProgressIndicator(color: AppTheme.primary),
+            );
+          }
 
-        final product = visible[i];
-        return _ProductCard(
-          product: product,
-          onTap: () => Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (_) => ProductDetailScreen(
-                product: product,
-                arService: widget.arService,
-              ),
-            ),
-          ),
-        );
-      },
+          final product = visible[i];
+          return _ProductCard(
+            product: product,
+            onTap: () async {
+              await Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => ProductDetailScreen(
+                    product: product,
+                    arService: widget.arService,
+                  ),
+                ),
+              );
+              if (mounted && !widget.demoMode) {
+                _loadFirstPage();
+              }
+            },
+          );
+        },
+      ),
     );
   }
 }

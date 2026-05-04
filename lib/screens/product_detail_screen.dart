@@ -37,16 +37,27 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final p = widget.product;
-    final priceFmt = NumberFormat.currency(
-      locale: 'es_CO',
-      symbol: '\$',
-      decimalDigits: 0,
-    );
-
     return Scaffold(
-      body: CustomScrollView(
-        slivers: [
+      body: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+        stream: FirebaseFirestore.instance
+            .collection('products')
+            .doc(widget.product.id)
+            .snapshots(),
+        builder: (context, snapshot) {
+          final p = snapshot.hasData && snapshot.data!.exists
+              ? ProductListing.fromFirestore(
+                  snapshot.data!.id,
+                  snapshot.data!.data()!,
+                )
+              : widget.product;
+          final priceFmt = NumberFormat.currency(
+            locale: 'es_CO',
+            symbol: '\$',
+            decimalDigits: 0,
+          );
+
+          return CustomScrollView(
+            slivers: [
           SliverAppBar(
             pinned: true,
             backgroundColor: Colors.white,
@@ -70,7 +81,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
               ),
               IconButton(
                 icon: const Icon(Icons.share_outlined),
-                onPressed: _shareProduct,
+                onPressed: () => _shareProduct(p),
               ),
             ],
           ),
@@ -82,7 +93,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                 glbUrl: p.model3d?.glbUrl,
                 usdzUrl: p.model3d?.usdzUrl,
                 productTitle: p.title,
-                onLaunchAR: _launchAR,
+                onLaunchAR: () => _launchAR(p),
               ),
             ),
           ),
@@ -116,7 +127,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                   const SizedBox(height: 14),
                   _SellerRow(
                     product: p,
-                    onViewProfile: _openSellerProfile,
+                    onViewProfile: () => _openSellerProfile(p),
                   ),
                   const SizedBox(height: 20),
                   const Text(
@@ -137,7 +148,9 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
               ),
             ),
           ),
-        ],
+            ],
+          );
+        },
       ),
       bottomNavigationBar: SafeArea(
         child: Container(
@@ -184,15 +197,15 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
     );
   }
 
-  Future<void> _launchAR() async {
+  Future<void> _launchAR(ProductListing product) async {
     if (_launchingAr) return;
     setState(() => _launchingAr = true);
 
     final messenger = ScaffoldMessenger.of(context);
     final result = await widget.arService.launchAR(
-      productTitle: widget.product.title,
-      glbUrl: widget.product.model3d?.glbUrl,
-      usdzUrl: widget.product.model3d?.usdzUrl,
+      productTitle: product.title,
+      glbUrl: product.model3d?.glbUrl,
+      usdzUrl: product.model3d?.usdzUrl,
     );
 
     if (!mounted) return;
@@ -285,8 +298,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
     }
   }
 
-  Future<void> _shareProduct() async {
-    final p = widget.product;
+  Future<void> _shareProduct(ProductListing p) async {
     final priceFmt = NumberFormat.currency(
       locale: 'es_CO',
       symbol: '\$',
@@ -429,14 +441,14 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
     }
   }
 
-  void _openSellerProfile() {
+  void _openSellerProfile(ProductListing product) {
     Navigator.push(
       context,
       MaterialPageRoute(
         builder: (_) => SellerProfileScreen(
-          sellerId: widget.product.sellerId,
-          sellerName: widget.product.sellerName ?? 'Vendedor',
-          sellerRating: widget.product.sellerRating,
+          sellerId: product.sellerId,
+          sellerName: product.sellerName ?? 'Vendedor',
+          sellerRating: product.sellerRating,
           arService: widget.arService,
         ),
       ),
