@@ -450,6 +450,10 @@ class _ProfileTabsScaffoldState extends State<_ProfileTabsScaffold> {
     final user = widget.user;
 
     final tabs = [
+      _MyProductsTab(
+        sellerId: user.uid,
+        onOpenProduct: widget.onOpenProduct,
+      ),
       _SavedItemsTab(
         title: 'Aún no tienes favoritos',
         stream: FirebaseFirestore.instance
@@ -544,21 +548,27 @@ class _ProfileTabsScaffoldState extends State<_ProfileTabsScaffold> {
             child: Row(
               children: [
                 _ProfileTabChip(
-                  label: 'Favoritos',
+                  label: 'Míos',
                   selected: _tabIndex == 0,
                   onTap: () => setState(() => _tabIndex = 0),
                 ),
                 const SizedBox(width: 8),
                 _ProfileTabChip(
-                  label: 'Enviadas',
+                  label: 'Favoritos',
                   selected: _tabIndex == 1,
                   onTap: () => setState(() => _tabIndex = 1),
                 ),
                 const SizedBox(width: 8),
                 _ProfileTabChip(
-                  label: 'Recibidas',
+                  label: 'Enviadas',
                   selected: _tabIndex == 2,
                   onTap: () => setState(() => _tabIndex = 2),
+                ),
+                const SizedBox(width: 8),
+                _ProfileTabChip(
+                  label: 'Recibidas',
+                  selected: _tabIndex == 3,
+                  onTap: () => setState(() => _tabIndex = 3),
                 ),
               ],
             ),
@@ -716,6 +726,317 @@ class _PurchaseIntentsTab extends StatelessWidget {
         );
       },
     );
+  }
+}
+
+class _MyProductsTab extends StatelessWidget {
+  final String sellerId;
+  final Future<void> Function(String productId) onOpenProduct;
+
+  const _MyProductsTab({
+    required this.sellerId,
+    required this.onOpenProduct,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final priceFmt = NumberFormat.currency(
+      locale: 'es_CO',
+      symbol: '\$',
+      decimalDigits: 0,
+    );
+
+    final query = FirebaseFirestore.instance
+        .collection('products')
+        .where('sellerId', isEqualTo: sellerId);
+
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: query.snapshots(),
+      builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return const Center(
+            child: Text('No se pudieron cargar tus productos'),
+          );
+        }
+        if (!snapshot.hasData) {
+          return const Center(
+            child: CircularProgressIndicator(color: AppTheme.primary),
+          );
+        }
+
+        final docs = snapshot.data!.docs.toList()
+          ..sort((a, b) {
+            final at = a.data()['createdAt'];
+            final bt = b.data()['createdAt'];
+            DateTime parse(dynamic v) {
+              if (v == null) return DateTime.fromMillisecondsSinceEpoch(0);
+              if (v is DateTime) return v;
+              try {
+                return (v as dynamic).toDate();
+              } catch (_) {
+                return DateTime.fromMillisecondsSinceEpoch(0);
+              }
+            }
+            return parse(bt).compareTo(parse(at));
+          });
+
+        if (docs.isEmpty) {
+          return const Center(
+            child: Padding(
+              padding: EdgeInsets.all(24),
+              child: Text(
+                'Aún no tienes productos publicados',
+                textAlign: TextAlign.center,
+              ),
+            ),
+          );
+        }
+
+        return ListView.separated(
+          padding: const EdgeInsets.all(16),
+          itemCount: docs.length,
+          separatorBuilder: (_, __) => const SizedBox(height: 10),
+          itemBuilder: (context, index) {
+            final doc = docs[index];
+            final data = doc.data();
+            final status = data['status'] as String? ?? 'published';
+            final photos = (data['photos'] as List?)?.cast<String>() ?? const [];
+            final firstPhoto = photos.isNotEmpty ? photos.first : '';
+
+            return Container(
+              decoration: BoxDecoration(
+                color: const Color(0xFFFAFAFB),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              padding: const EdgeInsets.all(12),
+              child: Row(
+                children: [
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(8),
+                    child: SizedBox(
+                      width: 56,
+                      height: 56,
+                      child: firstPhoto.isNotEmpty
+                          ? Image.network(
+                              firstPhoto,
+                              fit: BoxFit.cover,
+                              errorBuilder: (_, __, ___) =>
+                                  const Icon(Icons.image_outlined),
+                            )
+                          : const Icon(Icons.image_outlined),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          data['title'] as String? ?? 'Producto',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          priceFmt.format(
+                            (data['price'] as num?)?.toDouble() ?? 0,
+                          ),
+                          style: const TextStyle(
+                            fontSize: 13,
+                            color: Colors.black54,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        _StatusChip(status: status),
+                      ],
+                    ),
+                  ),
+                  PopupMenuButton<String>(
+                    onSelected: (value) async {
+                      switch (value) {
+                        case 'open':
+                          await onOpenProduct(doc.id);
+                          break;
+                        case 'edit':
+                          await _showEditDialog(context, doc.reference, data);
+                          break;
+                        case 'unpublish':
+                          await _confirmUnpublish(context, doc.reference);
+                          break;
+                        case 'republish':
+                          await doc.reference.update({'status': 'published'});
+                          break;
+                      }
+                    },
+                    itemBuilder: (context) => [
+                      const PopupMenuItem(
+                        value: 'open',
+                        child: ListTile(
+                          leading: Icon(Icons.open_in_new),
+                          title: Text('Ver'),
+                          dense: true,
+                        ),
+                      ),
+                      const PopupMenuItem(
+                        value: 'edit',
+                        child: ListTile(
+                          leading: Icon(Icons.edit_outlined),
+                          title: Text('Editar'),
+                          dense: true,
+                        ),
+                      ),
+                      if (status == 'published')
+                        const PopupMenuItem(
+                          value: 'unpublish',
+                          child: ListTile(
+                            leading: Icon(Icons.visibility_off_outlined),
+                            title: Text('Despublicar'),
+                            dense: true,
+                          ),
+                        )
+                      else
+                        const PopupMenuItem(
+                          value: 'republish',
+                          child: ListTile(
+                            leading: Icon(Icons.publish_outlined),
+                            title: Text('Republicar'),
+                            dense: true,
+                          ),
+                        ),
+                    ],
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Future<void> _showEditDialog(
+    BuildContext context,
+    DocumentReference<Map<String, dynamic>> ref,
+    Map<String, dynamic> data,
+  ) async {
+    final titleCtrl = TextEditingController(
+      text: data['title'] as String? ?? '',
+    );
+    final descCtrl = TextEditingController(
+      text: data['description'] as String? ?? '',
+    );
+    final priceCtrl = TextEditingController(
+      text: ((data['price'] as num?)?.toDouble() ?? 0).toStringAsFixed(0),
+    );
+
+    final saved = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Editar producto'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: titleCtrl,
+                decoration: const InputDecoration(labelText: 'Título'),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: descCtrl,
+                maxLines: 3,
+                decoration: const InputDecoration(labelText: 'Descripción'),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: priceCtrl,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(labelText: 'Precio'),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: AppTheme.primary,
+              minimumSize: const Size(0, 40),
+            ),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Guardar'),
+          ),
+        ],
+      ),
+    );
+
+    if (saved != true) return;
+
+    final newPrice = double.tryParse(priceCtrl.text.trim().replaceAll(',', '.'));
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await ref.update({
+        'title': titleCtrl.text.trim(),
+        'description': descCtrl.text.trim(),
+        if (newPrice != null) 'price': newPrice,
+      });
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Producto actualizado')),
+      );
+    } catch (e) {
+      messenger.showSnackBar(
+        SnackBar(content: Text('No se pudo actualizar: $e')),
+      );
+    }
+  }
+
+  Future<void> _confirmUnpublish(
+    BuildContext context,
+    DocumentReference<Map<String, dynamic>> ref,
+  ) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Despublicar producto'),
+        content: const Text(
+          'El producto dejará de aparecer en el catálogo. Podrás republicarlo después.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: AppTheme.danger,
+              minimumSize: const Size(0, 40),
+            ),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Despublicar'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await ref.update({'status': 'unpublished'});
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Producto despublicado')),
+      );
+    } catch (e) {
+      messenger.showSnackBar(
+        SnackBar(content: Text('No se pudo despublicar: $e')),
+      );
+    }
   }
 }
 
