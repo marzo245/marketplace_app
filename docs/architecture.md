@@ -2,42 +2,38 @@
 
 ## Vista general
 
-```
-┌─────────────────────────┐
-│   App Flutter (cliente) │
-│   - Vendedor (publica)  │
-│   - Comprador (explora) │
-└──────────┬──────────────┘
-           │
-           │ 1) HTTPS + Bearer (idToken Firebase)
-           │    multipart upload, polling status
-           ▼
-┌─────────────────────────────────────┐
-│  Backend Node/Express en Render     │
-│  https://marketplace-backend-sn06   │
-│           .onrender.com             │
-│  - Recibe upload de fotos           │
-│  - Crea job en Meshy                │
-│  - Recibe webhook de Meshy          │
-│  - Sube .glb/.usdz a Supabase       │
-│  - Actualiza Firestore              │
-│  - Envía push (FCM) al vendedor     │
-└─────┬──────────┬────────────┬───────┘
-      │          │            │
-      ▼          ▼            ▼
-┌──────────┐ ┌─────────┐ ┌──────────────────┐
-│ Meshy AI │ │Supabase │ │ Firebase Project │
-│  (3D)    │ │ Storage │ │ (marketplace-e7d4e)│
-└──────────┘ └─────────┘ │ - Firestore      │
-                         │ - Auth (Google)  │
-                         │ - FCM            │
-                         └──────────────────┘
-                                  ▲
-                                  │ 2) lectura directa con SDK
-                                  │    (catálogo, favoritos,
-                                  │     solicitudes, perfil)
-                                  │
-                            App Flutter
+> Diagrama editable visualmente: [`architecture.drawio`](architecture.drawio) (ábrelo en [app.diagrams.net](https://app.diagrams.net) o con la extensión "Draw.io Integration" de VS Code).
+
+```mermaid
+flowchart TB
+    subgraph client["📱 App Flutter"]
+        seller["Vendedor<br/>(publica)"]
+        buyer["Comprador<br/>(explora)"]
+    end
+
+    subgraph backend["☁️ Backend Node/Express en Render"]
+        api["marketplace-backend-sn06.onrender.com<br/>· Upload de fotos<br/>· Crea job Meshy<br/>· Recibe webhook<br/>· Sube .glb/.usdz a Supabase<br/>· Actualiza Firestore<br/>· Envía push FCM"]
+    end
+
+    subgraph external["Servicios externos"]
+        meshy["🎨 Meshy AI<br/>fotos → modelo 3D<br/>(.glb + .usdz)"]
+        supabase["📦 Supabase Storage<br/>aloja .glb / .usdz"]
+        subgraph firebase["🔥 Firebase (marketplace-e7d4e)"]
+            firestore["Firestore"]
+            auth["Auth (Google)"]
+            fcm["Cloud Messaging"]
+        end
+    end
+
+    client -- "1 · REST + Bearer idToken<br/>upload, polling status" --> api
+    api -- "job + webhook" --> meshy
+    api -- "sube modelos 3D" --> supabase
+    api -- "writes" --> firestore
+    api -- "push al vendedor" --> fcm
+    client -- "2 · SDK directo<br/>catálogo, favoritos,<br/>solicitudes, perfil" --> firestore
+    client -- "Google Sign-In<br/>idToken" --> auth
+    client -- "registra fcmToken" --> fcm
+    client -- "carga modelos<br/>en ModelViewer / Scene Viewer / Quick Look" --> supabase
 ```
 
 Hay **dos canales** desde la app:
@@ -81,25 +77,34 @@ Detalles en [`services.md`](services.md).
 
 ## Flujo de datos del modelo 3D
 
-```
-Vendedor toca "Publicar"
-  │
-  ├─► POST /products/create ──► backend ──► Meshy job
-  │                              │
-  │                              └─► Firestore: products/{id} = {status: "published", model3d: {status: "queued"}, ...}
-  │
-  ├─► UI: ProcessingScreen
-  │   └─► SellerProvider polls GET /products/{id}/status cada 5s
-  │       (también el ProductDetailScreen tiene su propio _ArProcessingChip que polea)
-  │
-  ├─► Meshy procesa (1-3 min) ─webhook─► backend
-  │                                       │
-  │                                       ├─► descarga .glb / .usdz
-  │                                       ├─► sube a Supabase Storage
-  │                                       ├─► actualiza Firestore: model3d = {status: "ready", glbUrl, usdzUrl}
-  │                                       └─► FCM push al vendedor
-  │
-  └─► Catálogo (StreamBuilder) detecta cambio en tiempo real → muestra badge "3D · AR"
+```mermaid
+sequenceDiagram
+    actor V as Vendedor
+    participant App as App Flutter
+    participant BE as Backend (Render)
+    participant M as Meshy AI
+    participant S as Supabase Storage
+    participant FS as Firestore
+    participant FCM as FCM
+    actor C as Comprador
+
+    V->>App: Toca "Publicar"
+    App->>BE: POST /products/create<br/>(multipart fotos + Bearer idToken)
+    BE->>M: Crea job 3D
+    BE->>FS: products/{id} = {status: "published",<br/>model3d: {status: "queued"}}
+    BE-->>App: {productId, jobId, estimatedMinutes}
+    App->>App: ProcessingScreen
+    loop cada 5s
+        App->>BE: GET /products/{id}/status
+        BE-->>App: {status, progress: N%}
+    end
+    M-->>BE: Webhook: modelo listo (.glb + .usdz)
+    BE->>S: Sube .glb / .usdz
+    S-->>BE: glbUrl, usdzUrl
+    BE->>FS: update model3d = {status: "ready",<br/>glbUrl, usdzUrl}
+    BE->>FCM: Push al vendedor
+    FCM-->>V: Notificación "Tu modelo 3D está listo"
+    FS-->>C: StreamBuilder detecta el cambio<br/>→ catálogo muestra badge "3D · AR"
 ```
 
 ## Decisiones arquitectónicas
