@@ -1,9 +1,14 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
+import 'package:provider/provider.dart';
 import 'package:share_plus/share_plus.dart';
+import '../models/product.dart';
 import '../models/product_listing.dart';
+import '../services/api_client.dart';
 import '../services/ar_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/product_3d_viewer.dart';
@@ -107,7 +112,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                     _ArAvailableChip()
                   else if (p.model3d?.status == 'processing' ||
                            p.model3d?.status == 'queued')
-                    _ArProcessingChip(),
+                    _ArProcessingChip(productId: p.id),
                   const SizedBox(height: 12),
                   Text(
                     p.title,
@@ -484,35 +489,112 @@ class _ArAvailableChip extends StatelessWidget {
   }
 }
 
-class _ArProcessingChip extends StatelessWidget {
+class _ArProcessingChip extends StatefulWidget {
+  final String productId;
+
+  const _ArProcessingChip({required this.productId});
+
+  @override
+  State<_ArProcessingChip> createState() => _ArProcessingChipState();
+}
+
+class _ArProcessingChipState extends State<_ArProcessingChip> {
+  static const _accent = Color(0xFFBA7517);
+  static const _bg = Color(0xFFFFF4E5);
+
+  Timer? _timer;
+  int? _progress;
+  Model3DStatus? _status;
+
+  @override
+  void initState() {
+    super.initState();
+    _poll();
+    _timer = Timer.periodic(const Duration(seconds: 5), (_) => _poll());
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _poll() async {
+    try {
+      final api = context.read<ApiClient>();
+      final status = await api.getProductStatus(widget.productId);
+      if (!mounted) return;
+      setState(() {
+        _progress = status.progress;
+        _status = status.status;
+      });
+      if (status.status == Model3DStatus.ready ||
+          status.status == Model3DStatus.failed) {
+        _timer?.cancel();
+      }
+    } catch (_) {
+      // soft-fail; keep polling
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    final progress = _progress;
+    final isFailed = _status == Model3DStatus.failed;
+    final fraction = (progress ?? 0).clamp(0, 100) / 100.0;
+    final label = isFailed
+        ? 'No se pudo generar la vista 3D'
+        : (progress == null
+            ? 'Generando vista 3D...'
+            : 'Generando vista 3D · $progress%');
+
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
-        color: const Color(0xFFFFF4E5),
+        color: _bg,
         borderRadius: BorderRadius.circular(14),
       ),
-      child: const Row(
+      child: Column(
         mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          SizedBox(
-            width: 10,
-            height: 10,
-            child: CircularProgressIndicator(
-              strokeWidth: 1.5,
-              color: Color(0xFFBA7517),
-            ),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              SizedBox(
+                width: 12,
+                height: 12,
+                child: CircularProgressIndicator(
+                  strokeWidth: 1.8,
+                  color: _accent,
+                  value: isFailed
+                      ? 0
+                      : (progress == null ? null : fraction),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                label,
+                style: const TextStyle(
+                  fontSize: 11,
+                  color: _accent,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
           ),
-          SizedBox(width: 8),
-          Text(
-            'Generando vista 3D...',
-            style: TextStyle(
-              fontSize: 11,
-              color: Color(0xFFBA7517),
-              fontWeight: FontWeight.w500,
+          if (!isFailed && progress != null) ...[
+            const SizedBox(height: 6),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(4),
+              child: LinearProgressIndicator(
+                value: fraction,
+                minHeight: 4,
+                backgroundColor: _accent.withAlpha(40),
+                valueColor: const AlwaysStoppedAnimation<Color>(_accent),
+              ),
             ),
-          ),
+          ],
         ],
       ),
     );
