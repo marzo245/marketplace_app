@@ -110,8 +110,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                 children: [
                   if (p.hasAr)
                     _ArAvailableChip()
-                  else if (p.model3d?.status == 'processing' ||
-                           p.model3d?.status == 'queued')
+                  else
                     _ArProcessingChip(productId: p.id),
                   const SizedBox(height: 12),
                   Text(
@@ -523,6 +522,8 @@ class _ArProcessingChipState extends State<_ArProcessingChip> {
     try {
       final api = context.read<ApiClient>();
       final status = await api.getProductStatus(widget.productId);
+      debugPrint('[ArProcessingChip] ${widget.productId} '
+          'status=${status.status} progress=${status.progress}');
       if (!mounted) return;
       setState(() {
         _progress = status.progress;
@@ -532,13 +533,16 @@ class _ArProcessingChipState extends State<_ArProcessingChip> {
           status.status == Model3DStatus.failed) {
         _timer?.cancel();
       }
-    } catch (_) {
-      // soft-fail; keep polling
+    } catch (e) {
+      debugPrint('[ArProcessingChip] poll failed: $e');
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    if (_status == Model3DStatus.ready) {
+      return _ArAvailableChip();
+    }
     final progress = _progress;
     final isFailed = _status == Model3DStatus.failed;
     final fraction = (progress ?? 0).clamp(0, 100) / 100.0;
