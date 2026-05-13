@@ -1,4 +1,4 @@
-# Marketplace 3D
+# VisuBuy
 
 App móvil Flutter para un marketplace donde los vendedores publican productos con fotos y se genera automáticamente un modelo 3D que los compradores pueden ver con realidad aumentada en su propio espacio.
 
