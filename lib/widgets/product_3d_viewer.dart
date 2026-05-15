@@ -202,6 +202,14 @@ class _MediaCarouselState extends State<MediaCarousel> {
     super.dispose();
   }
 
+  void _goTo(int index) {
+    _ctrl.animateToPage(
+      index,
+      duration: const Duration(milliseconds: 280),
+      curve: Curves.easeInOut,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final has3D = widget.glbUrl != null;
@@ -216,14 +224,49 @@ class _MediaCarouselState extends State<MediaCarousel> {
       ...widget.photos.map((url) => PhotoViewer(imageUrl: url)),
     ];
 
+    final isOn3D = has3D && _page == 0;
+    final canPrev = _page > 0;
+    final canNext = _page < items.length - 1;
+
     return Column(
       children: [
         AspectRatio(
           aspectRatio: 1,
-          child: PageView(
-            controller: _ctrl,
-            onPageChanged: (i) => setState(() => _page = i),
-            children: items,
+          child: Stack(
+            children: [
+              PageView(
+                controller: _ctrl,
+                onPageChanged: (i) => setState(() => _page = i),
+                physics: isOn3D
+                    ? const NeverScrollableScrollPhysics()
+                    : const PageScrollPhysics(),
+                children: items,
+              ),
+              if (canPrev)
+                Positioned(
+                  left: 8,
+                  top: 0,
+                  bottom: 0,
+                  child: Center(
+                    child: _NavButton(
+                      icon: Icons.chevron_left,
+                      onTap: () => _goTo(_page - 1),
+                    ),
+                  ),
+                ),
+              if (canNext)
+                Positioned(
+                  right: 8,
+                  top: 0,
+                  bottom: 0,
+                  child: Center(
+                    child: _NavButton(
+                      icon: Icons.chevron_right,
+                      onTap: () => _goTo(_page + 1),
+                    ),
+                  ),
+                ),
+            ],
           ),
         ),
         const SizedBox(height: 10),
@@ -231,19 +274,52 @@ class _MediaCarouselState extends State<MediaCarousel> {
           mainAxisAlignment: MainAxisAlignment.center,
           children: List.generate(items.length, (i) {
             final selected = i == _page;
-            return AnimatedContainer(
-              duration: const Duration(milliseconds: 200),
-              margin: const EdgeInsets.symmetric(horizontal: 3),
-              width: selected ? 20 : 6,
-              height: 6,
-              decoration: BoxDecoration(
-                color: selected ? AppTheme.primary : Colors.black26,
-                borderRadius: BorderRadius.circular(3),
+            return Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 3),
+              child: InkWell(
+                onTap: () => _goTo(i),
+                borderRadius: BorderRadius.circular(8),
+                child: Padding(
+                  padding: const EdgeInsets.all(6),
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 200),
+                    width: selected ? 22 : 8,
+                    height: 8,
+                    decoration: BoxDecoration(
+                      color: selected ? AppTheme.primary : Colors.black26,
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                  ),
+                ),
               ),
             );
           }),
         ),
       ],
+    );
+  }
+}
+
+class _NavButton extends StatelessWidget {
+  final IconData icon;
+  final VoidCallback onTap;
+  const _NavButton({required this.icon, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.white,
+      shape: const CircleBorder(),
+      elevation: 3,
+      shadowColor: Colors.black38,
+      child: InkWell(
+        customBorder: const CircleBorder(),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(8),
+          child: Icon(icon, size: 28, color: AppTheme.primary),
+        ),
+      ),
     );
   }
 }

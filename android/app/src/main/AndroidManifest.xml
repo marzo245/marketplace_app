@@ -17,7 +17,9 @@
         android:required="false"/>
 
     <application
-        android:label="Marketplace 3D"
+        android:label="VisuBuy"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher"
         android:name="${applicationName}"
         android:usesCleartextTraffic="true"
         android:requestLegacyExternalStorage="true">
