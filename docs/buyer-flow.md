@@ -25,7 +25,7 @@ products
 - **Paginación**: scroll → `_loadMore()` con `startAfterDocument(_lastDoc)`.
 - **Pull to refresh**: `RefreshIndicator` recarga desde la primera página.
 
-> Estos filtros combinados pueden requerir **índices compuestos** en Firestore. Firebase loguea el link para crearlos cuando la query falla. Ver [`troubleshooting.md`](troubleshooting.md).
+> Estos filtros combinados pueden requerir **índices compuestos** en Firestore. Firebase loguea el link para crearlos cuando la query falla.
 
 ### Tarjeta del producto
 

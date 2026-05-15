@@ -9,7 +9,7 @@ El tab "Perfil" tiene dos modos según sesión:
 
 Avatar con la inicial del `displayName`/`email`, nombre, correo, y botón **Cerrar sesión**.
 
-> Nota técnica: el botón usa un `style` local con `minimumSize: Size(0, 40)`. Esto es porque el theme global de `FilledButton` (`app_theme.dart`) tiene padding vertical fijo y, antes, `Size.fromHeight(52)` que forzaba ancho infinito y rompía el layout dentro de `Row`. Ver [`troubleshooting.md`](troubleshooting.md).
+> Nota técnica: el botón usa un `style` local con `minimumSize: Size(0, 40)`. Esto es porque el theme global de `FilledButton` (`app_theme.dart`) tiene padding vertical fijo y, antes, `Size.fromHeight(52)` que forzaba ancho infinito y rompía el layout dentro de `Row`.
 
 ## Pestañas (chips)
 
