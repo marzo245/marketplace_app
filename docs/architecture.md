@@ -119,6 +119,50 @@ sequenceDiagram
     API->>FCM: push al vendedor
 ```
 
+## Flujo de consulta del comprador sobre el modelo 3D
+
+```mermaid
+sequenceDiagram
+    actor C as Comprador
+    participant App as App Flutter
+    participant FS as Firestore
+    participant API as API Node/Express
+    participant M as Meshy AI
+    participant S as Model Storage
+
+    C->>App: Abre catalogo o detalle del producto
+    App->>FS: Lee products/{id} via SDK directo
+    FS-->>App: status + model3d.status + glbUrl/usdzUrl?
+
+    alt model3d.status = ready
+        App->>S: Carga glbUrl o usdzUrl
+        S-->>App: Archivo del modelo
+        App-->>C: Muestra visor 3D o abre AR
+    else model3d.status = queued o processing
+        App-->>C: Muestra chip de "Generando vista 3D"
+        loop mientras el detalle este abierto
+            App->>API: GET /api/v1/products/{id}/status
+            API->>M: opcional refresh de progreso
+            API-->>App: {status, progress, glbUrl?, usdzUrl?}
+        end
+        API->>FS: cuando el modelo queda listo, Firestore ya tiene URLs finales
+        FS-->>App: snapshot actualizado
+        App->>S: Carga glbUrl o usdzUrl
+        S-->>App: Archivo del modelo
+        App-->>C: Habilita visor 3D / boton AR
+    else model3d.status = failed
+        App-->>C: Oculta experiencia 3D o muestra error suave
+    end
+```
+
+### Resumen del flujo del comprador
+
+- el comprador descubre el estado del modelo primero desde Firestore
+- si el modelo ya esta listo, la app no necesita pasar por Meshy ni recrear nada
+- si el modelo sigue en proceso, la app consulta al backend de status
+- cuando existen `glbUrl` o `usdzUrl`, la app carga el modelo desde el storage final
+- el comprador nunca habla ni con Meshy ni con BullMQ directamente
+
 ## Contrato actual de endpoints
 
 - `POST /api/v1/products/create`
