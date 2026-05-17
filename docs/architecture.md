@@ -2,44 +2,57 @@
 
 ## Vista general
 
-> Diagrama editable visualmente: [`architecture.drawio`](architecture.drawio) (ábrelo en [app.diagrams.net](https://app.diagrams.net) o con la extensión "Draw.io Integration" de VS Code).
+> Diagrama editable visualmente: [`architecture.drawio`](architecture.drawio) (abrelo en [app.diagrams.net](https://app.diagrams.net) o con la extension "Draw.io Integration" de VS Code).
 
 ```mermaid
 flowchart TB
-    subgraph client["📱 App Flutter"]
-        seller["Vendedor<br/>(publica)"]
-        buyer["Comprador<br/>(explora)"]
+    subgraph client["App Flutter"]
+        seller["Vendedor"]
+        buyer["Comprador"]
     end
 
-    subgraph backend["☁️ Backend Node/Express en Render"]
-        api["marketplace-backend-sn06.onrender.com<br/>· Upload de fotos<br/>· Crea job Meshy<br/>· Recibe webhook<br/>· Sube .glb/.usdz a Supabase<br/>· Actualiza Firestore<br/>· Envía push FCM"]
+    subgraph backend["Backend Node/Express"]
+        api["API HTTP\ncreate + status + webhook"]
+        queue["BullMQ Queue\n3d-generation"]
+        worker["BullMQ Worker\nprocessor.js"]
+        redis["Redis"]
     end
 
     subgraph external["Servicios externos"]
-        meshy["🎨 Meshy AI<br/>fotos → modelo 3D<br/>(.glb + .usdz)"]
-        supabase["📦 Supabase Storage<br/>aloja .glb / .usdz"]
-        subgraph firebase["🔥 Firebase (marketplace-e7d4e)"]
+        meshy["Meshy AI"]
+        cloudinary["Cloudinary\nfotos"]
+        modelstore["Supabase Storage\nsi existe config\nFirebase Storage fallback"]
+        subgraph firebase["Firebase"]
             firestore["Firestore"]
-            auth["Auth (Google)"]
-            fcm["Cloud Messaging"]
+            auth["Auth"]
+            fcm["FCM"]
         end
     end
 
-    client -- "1 · REST + Bearer idToken<br/>upload, polling status" --> api
-    api -- "job + webhook" --> meshy
-    api -- "sube modelos 3D" --> supabase
-    api -- "writes" --> firestore
-    api -- "push al vendedor" --> fcm
-    client -- "2 · SDK directo<br/>catálogo, favoritos,<br/>solicitudes, perfil" --> firestore
-    client -- "Google Sign-In<br/>idToken" --> auth
-    client -- "registra fcmToken" --> fcm
-    client -- "carga modelos<br/>en ModelViewer / Scene Viewer / Quick Look" --> supabase
+    client -->|"REST + Bearer idToken"| api
+    client -->|"SDK directo"| firestore
+    client --> auth
+    client --> fcm
+
+    api -->|"add job"| queue
+    queue --> redis
+    worker --> redis
+    worker --> meshy
+    api --> meshy
+    api --> cloudinary
+    worker --> firestore
+    api --> firestore
+    api --> modelstore
+    worker --> modelstore
+    api --> fcm
 ```
 
-Hay **dos canales** desde la app:
+Hay dos canales desde la app:
 
-1. **Backend (REST)** — para acciones que requieren trabajo del servidor (upload de fotos, encolar Meshy, consultar progreso del modelo 3D).
-2. **Firebase SDK directo** — para todo lo que es lectura/escritura simple sobre Firestore (catálogo, favoritos, solicitudes de compra, mis productos). Esto evita endpoints triviales y aprovecha actualizaciones en tiempo real con `StreamBuilder`.
+1. **Backend REST** para publicar productos, encolar la generacion 3D y consultar progreso.
+2. **Firebase SDK directo** para catalogo, favoritos, solicitudes y perfil.
+
+La diferencia importante frente a una arquitectura "solo API" es que aqui el backend no procesa todo inline. La generacion 3D se desacopla usando **BullMQ + Redis**, con una cola compartida y al menos un worker consumidor.
 
 ## Responsabilidades por capa
 
@@ -50,30 +63,21 @@ Hay **dos canales** desde la app:
 | Entry | `main.dart` | Bootstrap Firebase, construye `MultiProvider`, decide `demoMode` si Firebase no inicializa. |
 | Tema | `theme/app_theme.dart` | Material 3, colores, estilos de botones. |
 | Modelos | `models/product.dart`, `models/product_listing.dart` | DTOs entre cliente, backend y Firestore. |
-| Servicios | `services/*.dart` | Clientes a APIs externas (Dio, FirebaseAuth, FCM, AR launcher, image_picker). |
-| Estado | `providers/*.dart` | `ChangeNotifier` por dominio (auth, seller). UI lo consume con `Consumer`/`context.read`. |
+| Servicios | `services/*.dart` | Clientes a APIs externas y al backend. |
+| Estado | `providers/*.dart` | `ChangeNotifier` por dominio. |
 | UI | `screens/*.dart`, `widgets/*.dart` | Pantallas y componentes reusables. |
 
-### Backend (Render)
+### Backend Node/Express
 
-> El backend vive en otro repositorio. Aquí dejamos lo que el cliente espera de él.
+El backend ya esta incluido en este proyecto bajo `meshy-worker/`. No vive "en otro repo" para este snapshot del proyecto.
 
-Endpoints conocidos:
+Piezas principales:
 
-- `POST /api/v1/products/create` — multipart con `title`, `description`, `price`, `category`, `photos[]`. Devuelve `{productId, jobId, productStatus, estimatedMinutes}`.
-- `GET /api/v1/products/{id}/status` — devuelve `{productId, productStatus, status, progress, glbUrl?, usdzUrl?, error?, errorDetail?}`.
-
-Ambos requieren header `Authorization: Bearer <Firebase idToken>`. El cliente lo agrega en `AuthProvider._syncSession` al loguearse.
-
-### Servicios externos
-
-Detalles en [`services.md`](services.md).
-
-- **Meshy AI**: convierte 2-4 fotos en un modelo 3D (`.glb` + `.usdz`) en 1-3 minutos.
-- **Supabase Storage**: aloja los archivos `.glb` y `.usdz` resultantes; el backend devuelve URLs públicas que el cliente abre en `ModelViewer` y en Scene Viewer/Quick Look.
-- **Firebase Firestore**: catálogo, favoritos, solicitudes, FCM tokens.
-- **Firebase Auth**: login con Google.
-- **Firebase Cloud Messaging**: push al vendedor cuando el modelo queda listo.
+- `src/server.js`: API HTTP, healthcheck, rutas REST y webhook
+- `src/services/queue.js`: conexion Redis y cola BullMQ `3d-generation`
+- `src/workers/processor.js`: worker que consume jobs y crea tareas en Meshy
+- `src/routes/products.js`: crea productos, encola jobs y expone status
+- `src/routes/webhooks.js`: recibe callback de Meshy y finaliza el modelo
 
 ## Flujo de datos del modelo 3D
 
@@ -81,120 +85,111 @@ Detalles en [`services.md`](services.md).
 sequenceDiagram
     actor V as Vendedor
     participant App as App Flutter
-    participant BE as Backend (Render)
+    participant API as API Node/Express
+    participant Q as BullMQ Queue
+    participant W as Worker
+    participant R as Redis
     participant M as Meshy AI
-    participant S as Supabase Storage
+    participant S as Model Storage
     participant FS as Firestore
     participant FCM as FCM
-    actor C as Comprador
 
     V->>App: Toca "Publicar"
-    App->>BE: POST /products/create<br/>(multipart fotos + Bearer idToken)
-    BE->>M: Crea job 3D
-    BE->>FS: products/{id} = {status: "published",<br/>model3d: {status: "queued"}}
-    BE-->>App: {productId, jobId, estimatedMinutes}
-    App->>App: ProcessingScreen
+    App->>API: POST /api/v1/products/create
+    API->>API: valida auth + sube fotos a Cloudinary
+    API->>FS: crea products/{id} con model3d.status = queued
+    API->>Q: add job {productId, sellerId, imageUrls}
+    Q->>R: persiste job
+    API-->>App: {productId, jobId, status: queued}
+
+    W->>R: consume job
+    W->>FS: reserva creditos / actualiza estado
+    W->>M: createMultiImageTask(webhookUrl)
+    W->>FS: model3d.status = processing + meshyTaskId
+
     loop cada 5s
-        App->>BE: GET /products/{id}/status
-        BE-->>App: {status, progress: N%}
+        App->>API: GET /api/v1/products/{id}/status
+        API->>M: opcional refresh de progreso
+        API-->>App: {status, progress}
     end
-    M-->>BE: Webhook: modelo listo (.glb + .usdz)
-    BE->>S: Sube .glb / .usdz
-    S-->>BE: glbUrl, usdzUrl
-    BE->>FS: update model3d = {status: "ready",<br/>glbUrl, usdzUrl}
-    BE->>FCM: Push al vendedor
-    FCM-->>V: Notificación "Tu modelo 3D está listo"
-    FS-->>C: StreamBuilder detecta el cambio<br/>→ catálogo muestra badge "3D · AR"
+
+    M-->>API: POST /webhooks/meshy
+    API->>S: guarda .glb / .usdz
+    API->>FS: model3d.status = ready + glbUrl + usdzUrl
+    API->>FCM: push al vendedor
 ```
 
-## Por qué cada tecnología
+## Contrato actual de endpoints
 
-### Flutter (cliente)
+- `POST /api/v1/products/create`
+  - requiere `Authorization: Bearer <Firebase idToken>`
+  - sube fotos, crea documento en Firestore y encola el job BullMQ
 
-Una sola base de código para Android e iOS con UI nativa-like y hot reload. Para un marketplace donde el diferenciador es la experiencia 3D/AR, mantener dos apps nativas en paralelo era costo muerto. Flutter además tiene `model_viewer_plus` (renderer 3D inline) y se integra bien con los visores AR nativos del sistema operativo vía deep links, así que no perdemos AR por ser multiplataforma.
+- `GET /api/v1/products/{id}/status`
+  - el cliente hoy tambien envia `Authorization` si tiene sesion
+  - **pero el backend actual no lo exige**
+  - devuelve estado, progreso y URLs del modelo si ya esta listo
 
-### Node.js + Express (backend)
+Esta diferencia importa: desde el punto de vista del cliente, ambos viajan por el mismo `ApiClient`; desde el punto de vista del backend, solo `create` esta protegido hoy.
 
-El backend hace tres cosas: validar tokens de Firebase, hablar con Meshy (HTTP/webhooks) y subir archivos a Supabase. Es I/O puro, sin CPU pesada. Node + Express es el camino más corto: ecosistema enorme, `firebase-admin` oficial, `multer` para multipart, deploy a Render en minutos. No hay nada en el dominio que justifique algo más complejo (Go, Rust, Java).
+## Storage real del sistema
 
-### Firebase Firestore (base de datos)
+- **Fotos originales**: Cloudinary
+- **Modelos 3D**:
+  - Supabase Storage si existen `SUPABASE_URL`, `SUPABASE_SECRET_KEY` y `SUPABASE_STORAGE_BUCKET`
+  - Firebase Storage como fallback si esa configuracion no existe
 
-Elegido por tres razones concretas:
+Por eso la arquitectura real no depende de un solo proveedor para `.glb` y `.usdz`.
 
-- **Tiempo real sin infra extra.** `snapshots()` en `StreamBuilder` actualiza el catálogo y el estado del modelo 3D sin polling ni websockets propios. Cuando el backend escribe `model3d.status = "ready"`, todos los compradores que tengan el detalle abierto ven el badge "3D · AR" aparecer solo.
-- **Reglas en el servidor, no en el cliente.** La autorización vive en `firestore.rules` validando `request.auth.uid`. Esto nos permite que el cliente lea/escriba Firestore directamente sin pasar por el backend para operaciones triviales (favoritos, solicitudes, perfil).
-- **Free tier suficiente** para la fase actual del proyecto. No pagamos por base de datos hasta tener tracción real.
+## BullMQ y Redis
 
-Trade-off conocido: queries con varios `where + orderBy` requieren índices compuestos que hay que crear a mano (Firebase loguea el link). Lo asumimos porque el modelo de datos es estable.
+BullMQ no es un detalle de implementacion menor aqui; es parte de la arquitectura:
 
-### Firebase Auth + Google Sign-In
+- la API agrega jobs a la cola `3d-generation`
+- Redis persiste la cola y su estado
+- el worker procesa en background con retries y backoff exponencial
+- el job usa `jobId = productId`, lo que ayuda a evitar duplicados logicos por producto
 
-- **Cero gestión de contraseñas, recuperación, verificación de email.** Todo lo absorbe Google.
-- **El `idToken` que emite Firebase Auth es JWT firmado**, así que el backend lo valida con `firebase-admin` sin tener que consultar nuestra base. Es la pieza que une cliente y backend: el cliente lo manda como `Authorization: Bearer ...` y el backend obtiene el `uid` del vendedor de forma confiable.
-- **Solo Google como proveedor** porque el público objetivo ya tiene cuenta Google en el dispositivo (Android sobre todo) y simplifica el onboarding a un tap.
-- Usamos `idTokenChanges()` (no `authStateChanges()`) para que el cliente refresque el token cuando expira (cada hora) sin que el usuario lo note.
+Configuracion visible hoy:
 
-### Firebase Cloud Messaging (FCM)
+- `attempts: 3`
+- `backoff` exponencial con delay inicial de 15s
+- `concurrency: 2`
+- `limiter: max 10 por minuto`
 
-Es el servicio de **push notifications** de Google para Android e iOS. Lo usamos para un caso específico: avisar al **vendedor** cuando su modelo 3D queda listo (Meshy tarda 1–3 min y la app puede estar cerrada en ese rato).
+## Topologia de procesos
 
-Cómo funciona aquí:
-1. Al loguearse, el cliente llama a `PushService.registerForUser(uid)` que pide permisos, obtiene un token único del dispositivo y lo guarda en `users/{uid}.fcmTokens` (array, para soportar varios dispositivos por usuario).
-2. Cuando el webhook de Meshy llega al backend, este lee los tokens del seller desde Firestore y envía el push vía FCM.
-3. Al cerrar sesión, el token se quita con `arrayRemove` para no notificar a dispositivos ajenos.
+En local, `docker-compose.yml` levanta:
 
-Lo elegimos sobre alternativas (OneSignal, Pusher) porque ya estábamos en Firebase: cero credenciales nuevas, cero billing extra.
+- `redis`
+- `api`
+- `worker`
 
-### Supabase Storage (modelos 3D)
+Ademas, `src/server.js` importa el worker inline salvo que `RUN_WORKER_INLINE === 'false'`. Eso significa que la arquitectura efectiva puede ser:
 
-Los archivos `.glb` y `.usdz` que produce Meshy pesan 2–10 MB cada uno y se sirven públicamente al cliente para cargarlos en `ModelViewer` y en Scene Viewer / Quick Look. **Necesitamos URLs públicas, estables, con CDN.**
+- API + worker inline en el mismo proceso
+- worker dedicado en proceso aparte
+- o ambos a la vez, si no se configura con cuidado
 
-Por qué Supabase y no Firebase Storage:
+Para documentacion conceptual conviene pensar en **API** y **worker** como roles separados, aunque en ciertos despliegues compartan proceso.
 
-- **URLs públicas reales** (`/storage/v1/object/public/...`) sin tokens firmados. Scene Viewer y Quick Look reciben un `file=URL` en el deep link, y necesitan que esa URL sea accesible sin headers de Authorization. Firebase Storage por defecto requiere tokens que caducan y rompen ese flujo.
-- **Free tier más generoso** para archivos binarios (1 GB vs. los 5 GB de Firebase pero con egreso más caro).
-- Está aislado de Firebase: si rotamos el bucket o cambiamos de proveedor de modelos, no tocamos auth ni Firestore.
+## Decisiones arquitectonicas
 
-El cliente nunca habla con Supabase escribiendo — solo lee URLs públicas que el backend le devuelve. La service-role key vive solo en el backend.
+### Por que Firebase SDK directo para lecturas
 
-### Meshy AI (fotos → 3D)
+- tiempo real con `snapshots()`
+- menos endpoints para operaciones triviales
+- reglas de seguridad en Firestore
 
-Servicio externo especializado. Construir nuestro propio pipeline de fotogrametría (COLMAP, NeRF, gaussian splatting) es un proyecto en sí mismo. Meshy entrega `.glb` + `.usdz` listos para AR en 1–3 minutos con 2–4 fotos. Es API-key y webhook, encaja sin fricción.
+### Por que BullMQ en vez de procesar inline
 
-### Webhooks (Meshy → backend)
+- publicar producto responde rapido
+- la generacion 3D tarda minutos y depende de APIs externas
+- se pueden aplicar retries, backoff y limites de concurrencia
+- desacopla el request HTTP del trabajo pesado
 
-Meshy tarda minutos en generar el modelo. Dos formas de saber cuándo termina:
+### Por que webhook + polling
 
-1. **Polling**: el backend pregunta cada N segundos. Desperdicia llamadas y agrega latencia.
-2. **Webhook**: Meshy nos llama cuando está listo. Cero latencia, cero requests inútiles.
-
-Por eso al crear el job le pasamos un `webhook_url` apuntando al backend; cuando recibe el callback, descarga el `.glb` / `.usdz`, los sube a Supabase, actualiza Firestore y dispara la push por FCM. **El cliente sí hace polling** (cada 5 s) contra el backend para mostrar la barra de progreso, pero ese polling es contra nuestro backend, no contra Meshy.
-
-### Render (hosting del backend)
-
-Free tier, deploy desde Git, HTTPS automático, variables de entorno por dashboard. Trade-off: **cold start de 30–60 s** tras inactividad. Por eso `api_client.dart` tiene `connectTimeout: 60s` y `receiveTimeout: 3min`. Para un MVP es aceptable; si crece, se mueve a un plan pago o a otro proveedor (Railway, Fly.io) sin cambiar código.
-
-### AR vía deep link (Scene Viewer / Quick Look) en vez de plugin
-
-`ar_flutter_plugin` y similares obligan a reimplementar detección de planos, anclaje, gestos, iluminación, y rompen seguido entre versiones de ARCore/ARKit. Lanzar los visores nativos del sistema (Scene Viewer en Android, AR Quick Look en iOS) con un deep link `intent://...#Intent;...end` o `https://...usdz` delega toda esa complejidad al SO. Como fallback in-app usamos `model_viewer_plus` (que envuelve `<model-viewer>` de Google). Detalles en [`ar.md`](ar.md).
-
-## Decisiones arquitectónicas
-
-### Por qué Firebase SDK directo para lecturas
-
-Listar catálogo, favoritos y solicitudes son operaciones puramente de lectura/escritura sobre documentos. Pasarlas por el backend duplicaría código sin valor. Usar Firestore directamente nos da:
-
-- **Tiempo real gratis**: `StreamBuilder` sobre `snapshots()` actualiza la UI cuando cambia un doc, sin polling.
-- **Menos endpoints**: el backend solo expone lo que requiere lógica de servidor (Meshy).
-- **Reglas de seguridad**: la autorización vive en `firestore.rules` (verificar `request.auth.uid`), no en código de aplicación.
-
-### Por qué AR vía deep link, no plugin
-
-`ar_flutter_plugin` y similares fuerzan reimplementar detección de planos, anclaje, gestos, iluminación. Lanzar **Scene Viewer (Android)** y **AR Quick Look (iOS)** delega esa complejidad al sistema operativo. Más detalles en [`ar.md`](ar.md).
-
-### Por qué dos polling sources del modelo 3D
-
-- `SellerProvider._checkStatus` corre mientras el vendedor está en `ProcessingScreen` justo después de publicar.
-- `_ArProcessingChip` (en `product_detail_screen.dart`) corre cuando cualquier usuario abre el detalle de un producto cuyo modelo aún no está listo.
-
-Son contextos diferentes y ciclos de vida distintos; se simplifica tener dos pollers desacoplados que el mismo endpoint resuelve.
+- Meshy notifica finalizacion por webhook
+- el cliente hace polling a tu backend para progreso y estado visible
+- el backend puede refrescar progreso desde Meshy cuando hace falta, sin exponer Meshy al cliente

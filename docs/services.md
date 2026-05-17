@@ -1,30 +1,64 @@
 # Servicios externos
 
-## Backend propio (Render)
+## Backend propio
 
 - **URL prod**: `https://marketplace-backend-sn06.onrender.com`
-- **Stack**: Node.js + Express (ver repo del backend).
-- **Hosting**: [Render.com](https://render.com), plan free → tiene **cold start** de ~30-60s tras inactividad. Por eso `api_client.dart` tiene `connectTimeout: 60s` y `receiveTimeout: 3min`.
+- **Stack**: Node.js + Express
+- **Codigo presente en este proyecto**: `meshy-worker/`
 
-Endpoints que el cliente consume (definidos en `lib/services/api_client.dart`):
+Aunque la app Flutter solo "ve" una API HTTP, internamente el backend usa:
 
-| Método | Path | Uso |
+- **BullMQ** para la cola de generacion 3D
+- **Redis** como backend de la cola
+- **Worker** separado para procesar jobs
+
+Endpoints que el cliente consume:
+
+| Metodo | Path | Uso |
 |---|---|---|
-| `POST` | `/api/v1/products/create` | Subir fotos y crear job Meshy. |
-| `GET`  | `/api/v1/products/{id}/status` | Consultar progreso del modelo 3D. |
+| `POST` | `/api/v1/products/create` | Subir fotos, crear producto y encolar job Meshy |
+| `GET` | `/api/v1/products/{id}/status` | Consultar progreso y resultado del modelo 3D |
 
-Headers requeridos:
-- `Authorization: Bearer <Firebase idToken>` — el backend valida el token con el Admin SDK de Firebase para identificar al vendedor.
+Headers:
+
 - `Accept: application/json`
+- `Authorization: Bearer <Firebase idToken>` para publicar
+
+Nota importante:
+
+- El cliente hoy envia el Bearer token en general cuando hay sesion.
+- El backend **si exige auth** en `POST /api/v1/products/create`.
+- El backend **no exige auth hoy** en `GET /api/v1/products/{id}/status`.
+
+## BullMQ + Redis
+
+Arquitectura real del procesamiento:
+
+1. La API recibe fotos y metadata del producto.
+2. Sube fotos a Cloudinary.
+3. Crea el documento en Firestore con `model3d.status = queued`.
+4. Encola un job BullMQ en `3d-generation`.
+5. Un worker consume el job desde Redis.
+6. El worker reserva creditos, crea la tarea en Meshy y guarda `meshyTaskId`.
+7. Meshy llama al webhook cuando termina.
+8. El backend descarga y guarda `.glb` y `.usdz`, actualiza Firestore y envia FCM.
+
+Configuracion visible hoy:
+
+- reintentos: `attempts = 3`
+- backoff exponencial: `delay = 15000`
+- concurrencia del worker: `2`
+- rate limit del worker: `10 jobs / minuto`
 
 ## Meshy AI
 
-Servicio externo que **convierte fotos en modelos 3D** (formatos `.glb` para Android/web y `.usdz` para iOS).
+Servicio externo que convierte fotos en modelos 3D.
 
-- **El cliente Flutter no habla con Meshy directamente.** Toda la integración está en el backend.
-- El backend envía el job y queda esperando un webhook de Meshy con el resultado.
-- Tiempo típico: 1-3 minutos por modelo.
-- El campo `progress` (0-100) que el cliente lee con `getProductStatus` proviene de la API de progreso de Meshy reflejada por el backend.
+- El cliente Flutter no habla con Meshy directamente.
+- La API encola el trabajo.
+- El worker crea la tarea remota en Meshy.
+- El backend recibe el resultado via webhook.
+- Durante `/status`, el backend puede refrescar progreso consultando Meshy si el modelo sigue `queued` o `processing`.
 
 ## Firebase
 
@@ -32,44 +66,83 @@ Servicio externo que **convierte fotos en modelos 3D** (formatos `.glb` para And
 
 ### Firebase Auth
 
-- Único proveedor habilitado: **Google Sign-In** (`AuthService.signInWithGoogle`).
-- El cliente obtiene `idToken` con `user.getIdToken()` en `AuthProvider._syncSession` y lo inyecta como Bearer en el `ApiClient`.
-- El stream usado es `idTokenChanges()` (no `authStateChanges`) para refrescar el token cuando expira.
+- proveedor principal: Google Sign-In
+- el cliente obtiene `idToken` y lo inyecta en el `ApiClient`
+- el backend valida el token con `firebase-admin` cuando la ruta lo requiere
 
 ### Firestore
 
-Base de datos principal. Colecciones (detalle en [`firestore-schema.md`](firestore-schema.md)):
+Base de datos principal.
 
-- `products` — catálogo público.
-- `users/{uid}/favorites` — favoritos por usuario.
-- `users/{uid}` — perfil + `fcmTokens`.
-- `purchase_intents` — solicitudes de compra (vista por vendedor y comprador).
-- `product_inquiries` — solicitudes de "Contactar" del comprador al vendedor.
+- `products`
+- `users/{uid}`
+- `users/{uid}/favorites`
+- `purchase_intents`
+- `product_inquiries`
 
-### Firebase Cloud Messaging (FCM)
+Tambien guarda el estado del flujo 3D:
 
-- `PushService.registerForUser(uid)` pide permisos, obtiene el token del dispositivo y lo guarda en `users/{uid}.fcmTokens` (array union para soportar múltiples dispositivos).
-- En logout limpia el token con `arrayRemove`.
-- El backend envía push cuando el modelo 3D queda listo (lee los tokens del seller desde `users/{uid}.fcmTokens`).
+- `model3d.status`
+- `model3d.progress`
+- `model3d.meshyTaskId`
+- `model3d.glbUrl`
+- `model3d.usdzUrl`
+- `model3d.error`
+
+### Firebase Cloud Messaging
+
+- el cliente registra `fcmTokens` en `users/{uid}`
+- el backend lee esos tokens y envia push cuando el modelo queda listo
 
 ### Firebase Storage
 
-> **Nota**: el cliente actualmente no sube ni descarga directamente desde Firebase Storage. Las fotos viajan vía multipart al backend, y los modelos 3D se sirven desde Supabase. Si en el futuro se mueven a Firebase Storage, este apartado debe actualizarse.
+No es el storage primario documentado para modelos, pero **si existe como fallback real** en backend.
 
-## Supabase
+Se usa cuando no estan configuradas las variables de Supabase Storage.
 
-Usado por el **backend** para almacenar los archivos `.glb` y `.usdz` que produce Meshy. El cliente solo recibe URLs públicas (`glbUrl`, `usdzUrl`) en la respuesta del API y las consume:
+## Cloudinary
 
-- `glbUrl` → cargado en `ModelViewer` (visor inline) y como `file=` en el deep link de Scene Viewer.
-- `usdzUrl` → cargado por AR Quick Look en iOS al abrir el URL directo.
+Cloudinary se usa para las **fotos del producto** subidas desde el formulario multipart.
 
-> Si tu backend además usa Supabase para otra cosa (auth, base de datos secundaria, edge functions), agrégalo aquí. Por ahora el cliente solo lo "ve" como un host de archivos estáticos.
+- el cliente no sube directo a Cloudinary
+- la API recibe las fotos
+- luego las sube a `marketplace/products/{productId}/photos`
 
-## Resumen de credenciales y dónde van
+## Storage de modelos 3D
 
-| Credencial / Config | Dónde | Notas |
+Hoy hay dos caminos posibles:
+
+### Supabase Storage
+
+Se usa si existen:
+
+- `SUPABASE_URL`
+- `SUPABASE_SECRET_KEY`
+- `SUPABASE_STORAGE_BUCKET`
+
+En ese caso, el backend sube `model.glb` y `model.usdz` y devuelve URLs publicas.
+
+### Firebase Storage fallback
+
+Si la configuracion de Supabase no existe, el backend guarda los modelos en Firebase Storage y genera una URL con token de descarga.
+
+Eso significa que la documentacion no debe asumir que todos los despliegues usan siempre Supabase.
+
+## Hosting
+
+La URL productiva documentada apunta a Render y el cliente tiene timeouts largos por cold start. Pero el repo tambien tiene señales de despliegue para otros escenarios:
+
+- `docker-compose.yml` para local con `api`, `worker` y `redis`
+- `railway.toml` en `meshy-worker/`
+
+## Resumen de credenciales
+
+| Credencial / Config | Donde | Notas |
 |---|---|---|
-| Firebase project (`google-services.json`, `GoogleService-Info.plist`) | `android/app/`, `ios/Runner/` | Generados con `flutterfire configure`. |
-| API base URL | `.env` → `API_BASE_URL` | Si falta, cae a la URL de Render hardcodeada en `api_client.dart`. |
-| Meshy API key | **solo backend** | Nunca debe estar en el cliente. |
-| Supabase service role | **solo backend** | Las URLs públicas de Storage sí pueden viajar al cliente. |
+| Firebase app config | `android/app/`, `ios/Runner/` | Generados con `flutterfire configure` |
+| API base URL | `.env` -> `API_BASE_URL` | Si falta, cae a la URL de Render hardcodeada |
+| Firebase idToken | Cliente | Se manda como Bearer al backend |
+| Meshy API key | Solo backend | Nunca debe vivir en cliente |
+| REDIS_URL | Solo backend | Necesaria para BullMQ |
+| Cloudinary creds | Solo backend | Para fotos |
+| Supabase service role | Solo backend | Solo si se usa Supabase Storage |
